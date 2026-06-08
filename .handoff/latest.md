@@ -1,35 +1,37 @@
-# Session Handoff: 000 - 初始状态
+# Session Handoff: 1a - 后端初始化与数据层
 
 ## 已完成
-- 无（项目尚未开始开发）
+- 创建 `backend/` Python 项目（pyproject.toml + requirements.txt，使用 uv 管理依赖）
+- 实现 `backend/app/database.py`（SQLite + WAL 模式，DATABASE_URL 环境变量）
+- 实现 `backend/app/models.py`（8 个 Entity：Project/Template/ProjectTemplate/Variable/CustomVariable/GenerationTask/GeneratedFile/AILog）
+- 实现 `backend/app/services/variable_registry.py`（VARIABLE_REGISTRY + VALIDATION_RULES + TEMPLATE_VARIABLE_MAP + 运行时注册表辅助函数）
+- 初始化 Alembic（`render_as_batch=True`），生成并执行首个 migration `a83ec3548e76_initial_schema`
 
 ## 文件变更
-- `.cursor/rules/000-project-context.mdc` — 项目全局规则
-- `.cursor/rules/001-backend.mdc` — 后端规则
-- `.cursor/rules/002-frontend.mdc` — 前端规则
-- `.handoff/000-session-plan.md` — 整体 Session 计划
-- 签字页管理系统 MVP 实现方案.md — 完整设计方案
+- `backend/pyproject.toml` — Python 项目配置与依赖
+- `backend/requirements.txt` — 依赖清单
+- `backend/app/__init__.py` — 应用包
+- `backend/app/database.py` — SQLite 连接 + WAL + SessionLocal
+- `backend/app/models.py` — 全部 SQLAlchemy 模型
+- `backend/app/services/__init__.py` — 服务层包
+- `backend/app/services/variable_registry.py` — 预置变量注册表
+- `backend/alembic.ini` — Alembic 配置
+- `backend/alembic/env.py` — 迁移环境（render_as_batch=True）
+- `backend/alembic/script.py.mako` — 迁移模板
+- `backend/alembic/versions/a83ec3548e76_initial_schema.py` — 首个迁移脚本
+- `data/.gitkeep` — 数据目录占位
 
 ## 当前状态
-- 项目目录只有文档，无代码
-- 后端 `backend/` 和前端 `frontend/` 均不存在
-- 本机 OrbStack VM 可用，环境变量 `LLM_PROVIDER` 默认为 mock
+- 在 OrbStack VM（oh-agent）中执行 `uv sync` 成功
+- `alembic upgrade head` 成功，9 张业务表 + alembic_version 已创建
+- `PRAGMA journal_mode` 返回 `wal`
+- `variable_registry.py` import 正常（14 个预置变量、4 条校验规则、3 个模板映射）
+- 数据库文件位于 `backend/data/junhe.db`（从 backend/ 目录运行时 `./data` 相对路径）
+- 后端 API（main.py、routers）尚未实现
 
-## 下一个 Session 任务
-**Session 1a: 后端项目初始化与数据层**
-对应方案中的 Task 1a，完成以下内容：
-1. 创建 `backend/` 目录结构，初始化 Python 项目
-2. 安装 FastAPI/SQLAlchemy/Alembic/docxtpl/openpyxl 等依赖
-3. 创建 `database.py`（SQLite + WAL 模式）
-4. 创建所有 SQLAlchemy 模型（Project/Template/ProjectTemplate/Variable/CustomVariable/GenerationTask/GeneratedFile/AILog）
-5. 初始化 Alembic（render_as_batch=True），生成首个 migration
-6. 创建 `variable_registry.py`（包含 VARIABLE_REGISTRY + VALIDATION_RULES + TEMPLATE_VARIABLE_MAP）
-7. DoD: `alembic upgrade head` 成功创建表结构，database.py 连接 SQLite 正常
+## 遗留问题
+- 无
 
-## 关键设计决策（来自 MVP 方案）
-- 变量双层标识：key（英文 snake_case）+ label（中文显示名）
-- 多值变量存储为多行，key 带序号后缀（handling_lawyer_1）
-- 异步生成使用 ThreadPoolExecutor + threading.Event 取消
-- 预置模板不可删除，自定义模板可上传
-- LLMProvider 抽象层默认 MockProvider
-- SQLAlchemy Session 非线程安全，每个线程用独立 session
+## 下一个 Session
+继续 Session 1b: LLM 抽象层 + 项目 API
+需要读取此 handoff + AGENTS.md 中 Session 1b 章节
