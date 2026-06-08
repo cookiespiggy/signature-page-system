@@ -1,11 +1,13 @@
 """OpenCode Server LLM Provider — v1.16.2 HTTP API 实现。
 
-支持结构化输出（format/json_schema），通过模型 mimo-v2.5-free 原生实现。
-当 format 参数传入时自动切换到此模型以获得可靠的 JSON 输出。"""
+支持结构化输出（format/json_schema）。
+默认使用 github-copilot/gpt-5-mini 进行结构化输出；
+若失败则自动 fallback 到 opencode/mimo-v2.5-free。"""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
@@ -15,8 +17,12 @@ from app.services.llm.base import LLMProvider
 DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096"
 DEFAULT_TIMEOUT = 120.0
 
-MODEL_STRUCTURED = "mimo-v2.5-free"
-PROVIDER = "opencode"
+DEFAULT_STRUCTURED_PROVIDER = "github-copilot"
+DEFAULT_STRUCTURED_MODEL = "gpt-5-mini"
+DEFAULT_STRUCTURED_FALLBACK_PROVIDER = "opencode"
+DEFAULT_STRUCTURED_FALLBACK_MODEL = "mimo-v2.5-free"
+
+logger = logging.getLogger(__name__)
 
 
 class OpenCodeProvider(LLMProvider):
@@ -31,6 +37,20 @@ class OpenCodeProvider(LLMProvider):
             "/"
         )
         self._timeout = timeout
+        self._structured_provider = os.getenv(
+            "OPENCODE_STRUCTURED_PROVIDER", DEFAULT_STRUCTURED_PROVIDER
+        ).strip()
+        self._structured_model = os.getenv(
+            "OPENCODE_STRUCTURED_MODEL", DEFAULT_STRUCTURED_MODEL
+        ).strip()
+        self._structured_fallback_provider = os.getenv(
+            "OPENCODE_STRUCTURED_FALLBACK_PROVIDER",
+            DEFAULT_STRUCTURED_FALLBACK_PROVIDER,
+        ).strip()
+        self._structured_fallback_model = os.getenv(
+            "OPENCODE_STRUCTURED_FALLBACK_MODEL",
+            DEFAULT_STRUCTURED_FALLBACK_MODEL,
+        ).strip()
 
     @property
     def provider_name(self) -> str:
@@ -61,51 +81,111 @@ class OpenCodeProvider(LLMProvider):
     ) -> str:
         sid = session_id or await self.create_session()
 
-        parts: list[dict] = [{"type": "text", "text": prompt}]
-        payload: dict = {"parts": parts}
-
-        if system:
-            payload["system"] = system
-
-        if format:
-            payload["format"] = format
-            payload["model"] = {"providerID": PROVIDER, "modelID": MODEL_STRUCTURED}
+        candidates = self._build_model_candidates(format=format)
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                f"{self._base_url}/session/{sid}/message",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+            last_error: Exception | None = None
+            for index, model in enumerate(candidates):
+                payload = self._build_payload(prompt=prompt, system=system, format=format, model=model)
+                try:
+                    response = await client.post(
+                        f"{self._base_url}/session/{sid}/message",
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return self._extract_response_text(data=data, format=format)
+                except Exception as exc:
+                    last_error = exc
+                    if index >= len(candidates) - 1:
+                        break
+                    next_model = candidates[index + 1]
+                    from_model = "default/default"
+                    if model:
+                        from_model = f"{model['providerID']}/{model['modelID']}"
+                    to_model = "default/default"
+                    if next_model:
+                        to_model = f"{next_model['providerID']}/{next_model['modelID']}"
+                    logger.warning(
+                        "OpenCode 模型调用失败，切换到备用模型重试: %s -> %s, error=%s",
+                        from_model,
+                        to_model,
+                        str(exc),
+                    )
+            if last_error:
+                raise last_error
+            raise RuntimeError("OpenCode 调用失败：未找到可用模型")
 
-            if isinstance(data, str):
-                return data
+    def _build_model_candidates(self, *, format: dict | None) -> list[dict[str, str] | None]:
+        if not format:
+            return [None]
 
-            if isinstance(data, dict):
-                info = data.get("info", {})
+        raw_candidates = [
+            {
+                "providerID": self._structured_provider or DEFAULT_STRUCTURED_PROVIDER,
+                "modelID": self._structured_model or DEFAULT_STRUCTURED_MODEL,
+            },
+            {
+                "providerID": self._structured_fallback_provider or DEFAULT_STRUCTURED_FALLBACK_PROVIDER,
+                "modelID": self._structured_fallback_model or DEFAULT_STRUCTURED_FALLBACK_MODEL,
+            },
+        ]
 
-                # 原生结构化输出：info.structured 包含验证后的 JSON
-                if isinstance(info, dict) and format:
-                    structured = info.get("structured")
-                    if structured:
-                        return json.dumps(structured, ensure_ascii=False)
+        deduped: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for candidate in raw_candidates:
+            key = (candidate["providerID"], candidate["modelID"])
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(candidate)
+        return deduped
 
-                # 普通文本回复：从 parts 中提取
-                raw_parts = data.get("parts", [])
-                for part in raw_parts:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        text = part.get("text", "")
-                        if text.strip():
-                            return text
+    def _build_payload(
+        self,
+        *,
+        prompt: str,
+        system: str,
+        format: dict | None,
+        model: dict[str, str] | None,
+    ) -> dict:
+        parts: list[dict] = [{"type": "text", "text": prompt}]
+        payload: dict = {"parts": parts}
+        if system:
+            payload["system"] = system
+        if format:
+            payload["format"] = format
+        if model:
+            payload["model"] = model
+        return payload
 
-                if isinstance(info, dict):
-                    for key in ("content", "message", "text", "response"):
-                        val = info.get(key)
-                        if val:
-                            return str(val)
+    def _extract_response_text(self, *, data: object, format: dict | None) -> str:
+        if isinstance(data, str):
+            return data
 
-            return str(data)
+        if isinstance(data, dict):
+            info = data.get("info", {})
+
+            if isinstance(info, dict) and format:
+                structured = info.get("structured")
+                if structured:
+                    return json.dumps(structured, ensure_ascii=False)
+                raise ValueError("OpenCode 未返回结构化字段 info.structured")
+
+            raw_parts = data.get("parts", [])
+            for part in raw_parts:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text = part.get("text", "")
+                    if text.strip():
+                        return text
+
+            if isinstance(info, dict):
+                for key in ("content", "message", "text", "response"):
+                    val = info.get(key)
+                    if val:
+                        return str(val)
+
+        return str(data)
 
     async def health_check(self) -> bool:
         try:
