@@ -64,8 +64,11 @@ Session 1a (后端初始化+数据层)
 1. 先读取 `.handoff/latest.md` 了解当前状态
 2. 读取 AGENTS.md 中对应 Session 的详细要求
 3. 读取 `.cursor/rules/` 下的规则文件
-4. 根据最新方案文档 `签字页管理系统 MVP 实现方案.md` 中的详细设计实现
-5. 实现完毕后：
+4. **检查环境就绪**（参见「九、知识索引」→ 环境配置）
+   - 确认 `.venv` 存在且与当前 OS 匹配（macOS vs Linux VM）
+   - 如果后端需要 LLM，检查 OpenCode Server / Mock 配置
+5. 根据最新方案文档 `docs/specs/签字页管理系统 MVP 实现方案.md` 中的详细设计实现
+6. 实现完毕后：
    a. 验证 DoD（完成标准）
    b. 更新 `.handoff/latest.md`（写入完成内容、文件变更、当前状态）
    c. 告知用户"Session X 已完成，可以开始下一个 Session"
@@ -396,20 +399,52 @@ Session 1a (后端初始化+数据层)
 
 ### 启动命令
 ```bash
-# 后端
-cd backend && uv run uvicorn app.main:app --reload
+# 后端（在 oh-agent VM 内运行）
+orb -m oh-agent uv run uvicorn app.main:app --port 8000
 
-# 前端
+# 后端 + OpenCode LLM（先在 VM 内启 opencode serve）
+orb -m oh-agent nohup /home/jimmy/.opencode/bin/opencode serve --port 4096 > /dev/null 2>&1 &
+orb -m oh-agent LLM_PROVIDER=opencode uv run uvicorn app.main:app --port 8000
+
+# 前端（宿主机直接运行）
 cd frontend && npm run dev
 ```
 
 ### 数据库
 ```bash
-cd backend && uv run alembic upgrade head    # 执行迁移
-cd backend && uv run alembic revision --autogenerate -m "描述"  # 生成新迁移
+orb -m oh-agent uv run alembic upgrade head    # 执行迁移
+orb -m oh-agent uv run alembic revision --autogenerate -m "描述"  # 生成新迁移
 ```
 
 ### 环境变量
-- `DATABASE_URL` — 默认 `sqlite:///./data/junhe.db`
-- `LLM_PROVIDER` — 可选 `mock|opencode|openai`，默认 `mock`
-- `GENERATED_DIR` — 默认 `data/generated`
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DATABASE_URL` | `sqlite:///./data/junhe.db` | 数据库连接 |
+| `LLM_PROVIDER` | `mock` | LLM 提供方：`mock`/`opencode`/`openai` |
+| `GENERATED_DIR` | `data/generated` | 生成文件目录 |
+
+---
+
+## 八、知识索引
+
+> 项目文档统一存放在 `docs/` 下：
+> - `docs/specs/` — 产品/设计文档（方案、PRD、模板样例）
+> - `docs/knowledge-base/` — 开发经验沉淀（踩坑、配置、最佳实践）
+
+### 环境与部署
+| 文件 | 内容 | 何时查阅 |
+|------|------|---------|
+| [`docs/knowledge-base/环境配置.md`](docs/knowledge-base/环境配置.md) | `.venv` 跨平台、场景矩阵、环境变量 | session 开始时检查环境 |
+| [`docs/knowledge-base/OpenCode-Server.md`](docs/knowledge-base/OpenCode-Server.md) | OpenCode 安装、API 要点、启动/验证/端到端测试 | LLM 相关 session |
+
+### 架构与设计
+| 文件 | 内容 | 何时查阅 |
+|------|------|---------|
+| [`docs/knowledge-base/结构化输出.md`](docs/knowledge-base/结构化输出.md) | JSON Schema 策略、mimo-v2.5-free 原生支持 | 涉及 AI 解析的 session |
+
+### 产品规格（`docs/specs/`）
+| 文件 | 内容 | 何时查阅 |
+|------|------|---------|
+| [`docs/specs/签字页管理系统 MVP 实现方案.md`](docs/specs/签字页管理系统%20MVP%20实现方案.md) | 详细技术方案、数据模型、API 路由 | Session 实现时参考 |
+| [`docs/specs/签字页 PRD.md`](docs/specs/签字页%20PRD.md) | 产品需求与功能描述 | 理解业务背景 |
+| [`docs/specs/签字页模版样例.md`](docs/specs/签字页模版样例.md) | 模板示例变量说明 | 模板管理相关 session |
