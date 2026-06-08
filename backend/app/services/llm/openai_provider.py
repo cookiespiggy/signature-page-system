@@ -72,7 +72,11 @@ class OpenAIProvider(LLMProvider):
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            if content is None:
+                refusal = data["choices"][0]["message"].get("refusal", "模型拒绝回答")
+                raise ValueError(f"OpenAI API 返回 refusal: {refusal}")
+            return content
 
     async def health_check(self) -> bool:
         if not self._api_key:
