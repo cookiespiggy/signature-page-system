@@ -1,0 +1,33 @@
+---
+description: 后端开发规则
+---
+
+# 后端开发规则
+
+## 依赖管理
+- 使用 `uv` 管理 Python 虚拟环境和依赖
+- 依赖写在 `backend/requirements.txt`
+- 生产依赖和开发依赖分开
+
+## 数据库
+- 使用 SQLite，路径默认 `sqlite:///./data/junhe.db`
+- 必须启用 WAL 模式：创建 engine 后执行 `PRAGMA journal_mode=WAL`
+- Alembic 迁移必须设置 `render_as_batch=True`（SQLite 兼容）
+- SQLAlchemy Session 非线程安全，线程池中每个 worker 使用独立 session
+
+## 代码风格
+- 使用 Type Hints 标注所有函数签名
+- 使用 Pydantic v2 做请求/响应校验
+- API 路由函数标注 async，同步操作在 services 中封装
+- 异常使用 HTTPException 统一抛出
+- 批量操作返回统一错误响应格式：`{success, errors, summary}`
+
+## AI Provider
+- 默认为 MockProvider，通过 `LLM_PROVIDER` 环境变量切换
+- Mock 响应在 `mock_responses.py` 中定义
+- 所有 AI 调用必须经过 `call_llm_structured()` 封装（含超时 + 重试 + 降级）
+
+## 生成任务
+- 不使用 FastAPI BackgroundTasks，使用独立的 ThreadPoolExecutor
+- 每个生成任务关联一个 threading.Event 用于取消
+- 每个 worker 线程创建独立的 SQLAlchemy Session

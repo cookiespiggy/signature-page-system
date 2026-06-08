@@ -1,0 +1,69 @@
+---
+description: 签字页管理系统项目的全局规则与上下文
+---
+
+# 签字页管理系统 - 项目规则
+
+## 入口指令
+当用户说「开始开发」、「继续开发」或提及 session/session 时，你必须：
+1. 读取 `AGENTS.md` 了解完整开发计划
+2. 读取 `.handoff/latest.md` 了解当前 Session 状态
+3. 按 AGENTS.md 中对应 Session 的要求完成开发
+4. 完成后更新 `.handoff/latest.md`
+
+## 项目概述
+签字页管理系统，为律师事务所生成签字页 Word (.docx) 文件。
+MVP 核心流程：创建项目 → 选择模板 → 填写变量 → 生成下载。
+
+## 技术栈
+- 后端: Python FastAPI + SQLite + SQLAlchemy + Alembic
+- 前端: React + TypeScript + Vite + Tailwind CSS + shadcn/ui
+- 模板渲染: docxtpl (Jinja2)
+- LLM: 通过 LLMProvider 抽象层调用（Mock/OpenCode/OpenAI）
+
+## 目录结构
+```
+junhe-mvp/
+├── frontend/               # React 前端
+│   ├── src/
+│   │   ├── components/     # shadcn/ui + 业务组件
+│   │   ├── pages/          # 页面组件
+│   │   ├── services/       # API 调用（统一封装 Loading/Error/Success）
+│   │   └── App.tsx
+│   └── vite.config.ts      # 开发代理 /api → :8000
+├── backend/                # Python 后端
+│   ├── app/
+│   │   ├── main.py         # FastAPI 入口 + CORS
+│   │   ├── models.py       # SQLAlchemy 模型
+│   │   ├── schemas.py      # Pydantic schemas
+│   │   ├── database.py     # SQLite + WAL 模式
+│   │   ├── routers/        # API 路由
+│   │   ├── services/       # 业务逻辑
+│   │   │   ├── llm/        # LLMProvider 抽象层
+│   │   │   ├── variable_registry.py
+│   │   │   ├── template_service.py
+│   │   │   ├── generation_service.py
+│   │   │   └── ai_service.py
+│   │   └── templates/      # Word 模板文件
+│   └── requirements.txt
+└── data/
+    ├── junhe.db
+    └── generated/
+```
+
+## 启动命令
+```bash
+# 后端
+cd backend && uv run uvicorn app.main:app --reload
+
+# 前端
+cd frontend && npm run dev
+```
+
+## 开发规范
+- 所有模型在 models.py 中定义，通过 Alembic 管理迁移
+- API 路由在 routers/ 目录下按资源拆分
+- AI 能力通过 LLMProvider 抽象层调用，默认为 MockProvider
+- 异步生成使用 ThreadPoolExecutor + threading.Event 取消机制
+- CORS 在 main.py 中配置，允许 localhost:5173
+- 数据库路径通过 DATABASE_URL 环境变量配置

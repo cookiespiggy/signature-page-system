@@ -1,0 +1,30 @@
+---
+description: 前端开发规则
+---
+
+# 前端开发规则
+
+## 技术栈
+- React 18+ + TypeScript + Vite
+- Tailwind CSS + shadcn/ui
+- react-router-dom v6（客户端路由）
+- 状态管理仅用 React 内置 useState/useReducer，不引入 Redux/Zustand
+
+## 页面路由
+- `/` — 项目列表页
+- `/projects/:id` — 项目详情页（分三步：模板选择 → 变量填写 → 生成下载）
+
+## API 调用规范
+- 统一在 `services/api.ts` 中封装 fetch，处理 Loading/Error/Success 三态
+- 网络错误、4xx、5xx 按统一规则处理
+- React Error Boundary 包裹页面级组件
+
+## UI 风格
+- 企业级设计，深蓝/灰色主色调
+- 项目列表：标准表格
+- 模板选择：卡片网格
+- 变量表单：按 category 分组
+- AI 区域：蓝色边框 + AI 图标
+
+## Vite 配置
+- 开发代理：`/api` → `http://localhost:8000`
