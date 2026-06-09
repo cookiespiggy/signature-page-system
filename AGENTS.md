@@ -337,10 +337,12 @@ Session 1a (后端初始化+数据层)
 - 后端 pytest 集成测试
 - 验证乐观锁、模板刷新、删除级联
 - 修复所有 P0/P1
+- **联调结束后清理 dev 进程**（uvicorn + Vite，避免端口占用）
 
 **DoD**：
 - 端到端流程可走通
 - 所有 pytest 通过
+- 联调临时进程已 kill，:8000 / :5173 无残留
 
 ---
 
@@ -399,23 +401,30 @@ Session 1a (后端初始化+数据层)
 
 ### 启动命令
 ```bash
+# 0. 若 uv run 报 ModuleNotFoundError: No module named 'python'，说明 .venv 在 macOS 创建，需在 VM 内重建：
+orb -m oh-agent bash -lc 'cd backend && rm -rf .venv && uv sync'
+
 # 1. 先确保 OpenCode Server 在运行（仅在首次启动或重启 VM 时需要）
-orb -m oh-agent nohup /home/jimmy/.opencode/bin/opencode serve --port 4096 > /dev/null 2>&1 &
+orb -m oh-agent bash -lc 'nohup /home/jimmy/.opencode/bin/opencode serve --port 4096 > /dev/null 2>&1 &'
 
-# 2. 后端（在 oh-agent VM 内运行，默认使用 OpenCode LLM）
-orb -m oh-agent uv run uvicorn app.main:app --port 8000
+# 2. 后端（在 oh-agent VM 内运行，--host 0.0.0.0 供宿主机 Vite 代理访问）
+orb -m oh-agent bash -lc 'cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000'
 
-# 3. 前端（宿主机直接运行）
+# 3. 前端（宿主机直接运行；.env.development 中 VITE_API_PROXY_TARGET 指向 VM IP）
 cd frontend && npm run dev
 
 # 如需切回 Mock（如离线环境）
-# orb -m oh-agent LLM_PROVIDER=mock uv run uvicorn app.main:app --port 8000
+# orb -m oh-agent bash -lc 'cd backend && LLM_PROVIDER=mock uv run uvicorn app.main:app --host 0.0.0.0 --port 8000'
+
+# 4. 联调结束后清理（避免残留进程占用端口，详见 docs/knowledge-base/环境配置.md）
+orb -m oh-agent bash -lc 'pkill -f "uvicorn app.main:app"'
+pkill -f "vite" 2>/dev/null
 ```
 
 ### 数据库
 ```bash
-orb -m oh-agent uv run alembic upgrade head    # 执行迁移
-orb -m oh-agent uv run alembic revision --autogenerate -m "描述"  # 生成新迁移
+orb -m oh-agent bash -lc 'cd backend && uv run alembic upgrade head'    # 执行迁移
+orb -m oh-agent bash -lc 'cd backend && uv run alembic revision --autogenerate -m "描述"'  # 生成新迁移
 ```
 
 ### 环境变量
