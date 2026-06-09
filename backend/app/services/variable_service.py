@@ -80,6 +80,35 @@ def validate_value(key: str, value: str, data_type: str) -> str | None:
     return None
 
 
+def _try_create_multiple_row(db: Session, project_id: int, key: str) -> Variable | None:
+    """为 multiple 变量动态新增行（如 handling_lawyer_3）。"""
+    match = _BASE_KEY_PATTERN.match(key)
+    if not match:
+        return None
+
+    base = match.group(1)
+    siblings = _find_variables_by_base(db, project_id, base)
+    if not siblings:
+        return None
+
+    template = siblings[0]
+    var = Variable(
+        project_id=project_id,
+        key=key,
+        label=template.label,
+        value="",
+        data_type=template.data_type,
+        category=template.category,
+        is_multiple=True,
+        required=template.required,
+        sort_order=template.sort_order,
+        source_template_ids=list(template.source_template_ids or []),
+    )
+    db.add(var)
+    db.flush()
+    return var
+
+
 def save_variables(
     db: Session,
     project_id: int,
@@ -102,10 +131,12 @@ def save_variables(
 
         var = _find_variable(db, project_id, key)
         if var is None:
+            var = _try_create_multiple_row(db, project_id, key)
+        if var is None:
             errors.append({"row": index, "key": key, "message": f"变量 {key} 不存在"})
             continue
 
-        if client_updated_at is not None:
+        if client_updated_at is not None and client_updated_at != "":
             if isinstance(client_updated_at, str):
                 client_updated_at = datetime.fromisoformat(
                     client_updated_at.replace("Z", "+00:00")

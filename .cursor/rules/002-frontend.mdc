@@ -1,12 +1,12 @@
 ---
-description: 前端开发规则
+description: 前端开发规则（含黑金律所 UI 设计系统，Session 5a-1 起生效）
 ---
 
 # 前端开发规则
 
 ## 技术栈
 - React 18+ + TypeScript + Vite
-- Tailwind CSS + shadcn/ui
+- Tailwind CSS v4 + shadcn/ui
 - react-router-dom v6（客户端路由）
 - 状态管理仅用 React 内置 useState/useReducer，不引入 Redux/Zustand
 
@@ -19,12 +19,57 @@ description: 前端开发规则
 - 网络错误、4xx、5xx 按统一规则处理
 - React Error Boundary 包裹页面级组件
 
-## UI 风格
-- 企业级设计，深蓝/灰色主色调
-- 项目列表：标准表格
-- 模板选择：卡片网格
-- 变量表单：按 category 分组
-- AI 区域：蓝色边框 + AI 图标
+## UI 设计系统（**必须遵守，禁止跑偏**）
+
+> 完整说明见 [`docs/knowledge-base/UI设计规范.md`](docs/knowledge-base/UI设计规范.md)
+> 参考实现：`ListPage.tsx`、`AppLayout.tsx`
+
+### 品牌定位
+**高端律所黑金稳重风** — 深色底、香槟金点缀、衬线标题、克制留白。禁止改回蓝白 SaaS 风、禁止高饱和渐变/霓虹色。
+
+### 色彩（只用语义 Token，禁止硬编码 hex/oklch）
+| Token | 用途 |
+|-------|------|
+| `bg-background` / `text-foreground` | 页面底色与正文 |
+| `bg-card` | 卡片/面板 |
+| `text-primary` / `bg-primary` | 金色强调、链接、主按钮 |
+| `text-muted-foreground` | 次要说明 |
+| `border-primary/15` ~ `/30` | 金色边框（按层级选透明度） |
+| `text-destructive` | 仅删除/错误，不可作主色 |
+
+**禁止**：`bg-blue-*`、`text-blue-*`、内联 `#D4AF37`、`oklch(...)` 写死在组件里。改色只改 `frontend/src/index.css` 的 `:root`。
+
+### 字体
+- 标题 h1–h4、品牌名：`font-heading`（Playfair Display，已在 base 层配置）
+- 正文/表单/表格：默认 `font-sans`（Geist Variable）
+- 英文副标签：`text-[11px] tracking-[0.25em] text-primary/70 uppercase`
+
+### 必复用布局组件（新页面优先用，勿重复造）
+| 组件 | 路径 | 用途 |
+|------|------|------|
+| `AppLayout` | `components/layout/AppLayout.tsx` | 顶栏 + 主内容区 |
+| `PageHeader` | `components/layout/PageHeader.tsx` | 页标题 + 英文标签 + 操作按钮 |
+| `GoldPanel` | `components/layout/GoldPanel.tsx` | 卡片/表格/空状态容器 |
+
+### 必复用 CSS 工具类（定义在 `index.css`）
+- `gold-panel` — 标准内容面板
+- `gold-divider` — 金色渐变分隔线
+- `font-heading` — 衬线标题
+
+### 组件模式
+- **主按钮**：`bg-primary text-primary-foreground border border-primary/30`
+- **次按钮**：`variant="outline"` + `border-primary/25`
+- **表格**：外层 `GoldPanel`，表头 `text-xs tracking-wider text-primary/80 uppercase`，行 hover `hover:bg-primary/5`
+- **状态 Badge**：已完成 `border-primary/35 bg-primary/15 text-primary`；进行中带金色 pulse 点；草稿 `outline` + muted
+- **AI 区域**（5b 起）：`GoldPanel` + `border-primary/30` + 金色「AI」标签，**不用蓝色边框**
+- **空状态/错误**：`GoldPanel dashed` + 居中文案
+
+### 新建页 Checklist（Agent 提交前自检）
+1. 是否复用了 `PageHeader` / `GoldPanel` / `AppLayout`？
+2. 是否只用了语义色 class，无 hardcode 颜色？
+3. 标题是否用了 `font-heading` 或 h1–h4（自动衬线）？
+4. 是否避免了大圆角（`rounded-full` 装饰）、花哨渐变、亮色主题？
+5. 参考 `ListPage.tsx` 对照间距（页面 `space-y-8`、主区内边距由 AppLayout 控制）
 
 ## Vite 配置
-- 开发代理：`/api` → `http://localhost:8000`
+- 开发代理：`/api` → 后端（默认 `127.0.0.1:8000`，可用 `VITE_API_PROXY_TARGET` 指向 OrbStack VM）
