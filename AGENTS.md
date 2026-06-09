@@ -438,21 +438,30 @@ orb -m oh-agent bash -lc 'cd backend && uv run alembic revision --autogenerate -
 
 ## 八、知识索引
 
-> 项目文档统一存放在 `docs/` 下：
-> - `docs/specs/` — 产品/设计文档（方案、PRD、模板样例）
-> - `docs/knowledge-base/` — 开发经验沉淀（踩坑、配置、最佳实践）
+> 项目知识双轨沉淀：
+> - **`.cursor/skills/`** — Agent Skills（精简指令，按场景自动发现，优先加载）
+> - **`docs/knowledge-base/`** — 人类可读长文归档（完整踩坑叙事）
+> - **`docs/specs/`** — 产品/设计文档（方案、PRD、模板样例）
+
+索引见 [`.cursor/skills/README.md`](.cursor/skills/README.md)。
 
 ### 环境与部署
-| 文件 | 内容 | 何时查阅 |
+| Skill / 文档 | 内容 | 何时查阅 |
 |------|------|---------|
-| [`docs/knowledge-base/环境配置.md`](docs/knowledge-base/环境配置.md) | `.venv` 跨平台、场景矩阵、环境变量 | session 开始时检查环境 |
-| [`docs/knowledge-base/OpenCode-Server.md`](docs/knowledge-base/OpenCode-Server.md) | OpenCode 安装、API 要点、启动/验证/端到端测试 | LLM 相关 session |
+| Skill `dev-environment` | OrbStack VM、.venv、启动/清理命令 | session 开始时检查环境 |
+| [`docs/knowledge-base/环境配置.md`](docs/knowledge-base/环境配置.md) | 完整场景矩阵与踩坑 | 环境疑难排查 |
+| Skill `opencode-server` | OpenCode 启动、API、模型选型 | LLM 相关 session |
+| [`docs/knowledge-base/OpenCode-Server.md`](docs/knowledge-base/OpenCode-Server.md) | OpenCode 端到端验证细节 | LLM 联调排错 |
 
 ### 架构与设计
-| 文件 | 内容 | 何时查阅 |
+| Skill / 文档 | 内容 | 何时查阅 |
 |------|------|---------|
-| [`docs/knowledge-base/结构化输出.md`](docs/knowledge-base/结构化输出.md) | JSON Schema 策略、mimo-v2.5-free 原生支持 | 涉及 AI 解析的 session |
-| [`docs/knowledge-base/UI设计规范.md`](docs/knowledge-base/UI设计规范.md) | 黑金律所 UI Token、布局组件、Agent Checklist | **任何前端 Session（5a-2 / 5b 及后续）** |
+| Skill `structured-output` | JSON Schema 策略、模型 fallback | 涉及 AI 解析的 session |
+| [`docs/knowledge-base/结构化输出.md`](docs/knowledge-base/结构化输出.md) | 完整模型列表与 curl 验证 | Provider 深度调试 |
+| Skill `ai-trust-guardrail` | 三层防御、TrustLevel、交叉验证 | AI 场景开发与前端 AI 组件 |
+| [`docs/knowledge-base/AI可信机制.md`](docs/knowledge-base/AI可信机制.md) | 可信机制完整设计 rationale | Guardrail 架构变更 |
+| Skill `ui-design-system` | 黑金 Token、布局组件、禁止事项 | **任何前端 Session（5a-2 / 5b 及后续）** |
+| [`docs/knowledge-base/UI设计规范.md`](docs/knowledge-base/UI设计规范.md) | UI 场景示例与变更流程 | 风格调整 |
 
 ### 产品规格（`docs/specs/`）
 | 文件 | 内容 | 何时查阅 |
@@ -460,3 +469,8 @@ orb -m oh-agent bash -lc 'cd backend && uv run alembic revision --autogenerate -
 | [`docs/specs/签字页管理系统 MVP 实现方案.md`](docs/specs/签字页管理系统%20MVP%20实现方案.md) | 详细技术方案、数据模型、API 路由 | Session 实现时参考 |
 | [`docs/specs/签字页 PRD.md`](docs/specs/签字页%20PRD.md) | 产品需求与功能描述 | 理解业务背景 |
 | [`docs/specs/签字页模版样例.md`](docs/specs/签字页模版样例.md) | 模板示例变量说明 | 模板管理相关 session |
+
+### 交付报告
+| 文件 | 内容 | 何时查阅 |
+|------|------|---------|
+| [`docs/AI参与环节说明报告.md`](docs/AI参与环节说明报告.md) | 开发过程 AI 工具 + 系统内置 AI 能力说明 | Session 7 交付、项目复盘 |

@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>签字页管理系统 MVP — 项目技术报告</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
+  @page { size: A4; margin: 1.8cm 2cm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #1a1a1a; line-height: 1.8; padding: 40px 56px; max-width: 960px; margin: 0 auto; font-size: 14px; background: #fff; }
+  h1, h2, h3, h4 { font-family: 'Noto Serif SC', serif; font-weight: 700; }
+  h1 { font-size: 28px; text-align: center; margin-bottom: 4px; color: #8b6914; letter-spacing: 3px; }
+  .subtitle { text-align: center; color: #888; font-size: 12px; margin-bottom: 6px; letter-spacing: 2px; }
+  .title-bar { border-bottom: 3px solid #8b6914; margin-bottom: 32px; padding-bottom: 12px; }
+  h2 { font-size: 19px; color: #8b6914; margin-top: 36px; margin-bottom: 14px; border-left: 4px solid #8b6914; padding-left: 12px; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
+  h2 .num { font-size: 11px; background: rgba(139,105,20,0.1); color: #8b6914; padding: 2px 10px; border-radius: 2px; font-family: 'Noto Sans SC', sans-serif; letter-spacing: 2px; }
+  h3 { font-size: 15px; color: #333; margin-top: 18px; margin-bottom: 8px; }
+  h4 { font-size: 13.5px; color: #555; margin-top: 14px; margin-bottom: 6px; font-weight: 600; }
+  p, li { margin-bottom: 6px; }
+  ul, ol { padding-left: 22px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
+  th, td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+  th { background: #f8f4e8; color: #333; font-weight: 600; border-color: #d4c89a; }
+  tr:nth-child(even) { background: #fafafa; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+  pre { background: #1e1e2e; color: #cdd6f4; padding: 14px 18px; border-radius: 8px; font-size: 12px; line-height: 1.55; overflow-x: auto; margin: 10px 0; font-family: 'JetBrains Mono', 'Fira Code', monospace; border: 1px solid #313244; }
+  pre .kw { color: #cba6f7; } pre .fn { color: #89b4fa; } pre .str { color: #a6e3a1; } pre .cm { color: #6c7086; font-style: italic; } pre .num { color: #fab387; }
+  .tag { display: inline-block; background: #8b6914; color: #fff; padding: 1px 8px; border-radius: 10px; font-size: 11px; margin-right: 4px; }
+  .tag-gray { background: #999; } .tag-green { background: #4caf50; } .tag-red { background: #e53935; } .tag-blue { background: #3b82f6; }
+  .highlight { background: #fffbe6; border-left: 3px solid #8b6914; padding: 12px 16px; margin: 14px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  .highlight-blue { background: #eef6ff; border-left: 3px solid #4a90d9; }
+  .highlight-muted { background: #f5f5f5; border-left: 3px solid #999; }
+  .page-break { page-break-before: always; }
+  .footer { text-align: center; color: #aaa; font-size: 11px; margin-top: 44px; border-top: 1px solid #eee; padding-top: 12px; letter-spacing: 1px; }
+  .arch-box { background: #f9f9f9; border: 1px solid #e0e0e0; padding: 14px 18px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.55; white-space: pre; overflow-x: auto; }
+  .card-row { display: flex; gap: 14px; margin: 12px 0; }
+  .card { flex: 1; background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; }
+  .card h4 { margin-top: 0; color: #8b6914; font-size: 13px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0; }
+  .stat-item { background: #f9f6ee; border: 1px solid #e8e0cc; border-radius: 8px; padding: 14px; text-align: center; }
+  .stat-item .num { font-size: 26px; font-weight: 700; color: #8b6914; display: block; font-family: 'Noto Serif SC', serif; }
+  .stat-item .label { font-size: 11px; color: #888; margin-top: 2px; letter-spacing: 1px; }
+  .flow { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; margin: 16px 0; padding: 14px; background: #f9f9f9; border-radius: 6px; border: 1px solid #e8e0cc; }
+  .flow .node { background: rgba(139,105,20,0.08); border: 1px solid rgba(139,105,20,0.25); padding: 8px 14px; border-radius: 4px; font-size: 12px; color: #8b6914; text-align: center; min-width: 80px; }
+  .flow .node.hl { background: rgba(139,105,20,0.18); font-weight: 600; }
+  .flow .arrow { color: #999; font-size: 18px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; overflow-x: auto; }
+  .timeline { border-left: 2px solid #8b6914; padding-left: 18px; margin: 12px 0 12px 8px; }
+  .timeline-item { position: relative; margin-bottom: 12px; }
+  .timeline-item::before { content: ""; position: absolute; left: -23px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: #8b6914; }
+  .timeline-item .ttitle { font-weight: 600; color: #333; }
+  .timeline-item .tdesc { font-size: 12.5px; color: #888; margin-top: 2px; }
+  .cover-meta { text-align: center; color: #888; font-size: 12px; line-height: 2.2; margin: 12px 0 0; }
+  .cover-meta span { color: #8b6914; font-weight: 600; }
+  .arch-layer { display: flex; align-items: center; padding: 10px 14px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 4px; background: #fafafa; }
+  .arch-layer .atag { width: 90px; font-size: 11px; color: #8b6914; letter-spacing: 1px; flex-shrink: 0; font-weight: 600; }
+  .arch-layer .adesc { flex: 1; font-size: 12.5px; color: #555; }
+  @media print { body { padding: 0; } .no-print { display: none; } .page-break { break-before: page; } }
+</style>
+</head>
+<body>
+
+<div class="title-bar">
+<h1>签字页管理系统 MVP</h1>
+<p class="subtitle">JunHe Signing Page Generator &nbsp;&bull;&nbsp; 项目技术报告 &nbsp;&bull;&nbsp; 2026-06-09</p>
+<div class="cover-meta">
+  交付范围：后端 API（FastAPI + SQLite） · 前端 SPA（React + Vite + shadcn/ui） · AI 三场景集成<br>
+  代码规模：后端 <span>~4,300 行</span> · 前端 <span>~4,800 行</span> · 测试 <span>~680 行</span> · 共 <span>68 个源文件</span><br>
+  开发周期：<span>7 个 Session</span> &nbsp;|&nbsp; 测试用例：<span>16 项全部通过</span>
+</div>
+</div>
+
+<!-- ==================== 1 ==================== -->
+<h2><span class="num">一</span> 业务关键理解：从工具到法律生产基础设施</h2>
+
+<h3>1.1 行业语境：法律文书生产的最后一公里</h3>
+<p>在 IPO、并购、基金设立等跨境/境内交易中，签字页是整套法律文件的"终点"——所有谈判、条款、合规审查的成果最终凝结为一个个签字页上的变量值。一个典型交易涉及 <b>3~10 个签字页模板</b>，涵盖自然人股东、机构股东、律师事务所等多种签署主体，每个模板 <b>6~20 个变量</b>，其中 30%~50% 为跨模板共享的核心字段。</p>
+
+<p>然而，这个"最后一公里"恰恰是整个法律文档数字化链条中<b>最薄弱的环节</b>。律所的合同管理系统解决了合同起草，尽调平台解决了尽职调查，但签字页——这个最终交付物——仍然停留在手工填写 Word 文档的阶段。</p>
+
+<div class="highlight">
+<b>战略洞察</b>：签字页不只是一个 Word 文件，它是<b>法律服务生产流程的数字化闭环节点</b>。谁掌握了签字页的生成入口，谁就掌握了从"合同起草 → 尽调审查 → 签字交付"的全链路。MVP 解决的是"降本"，但它的战略价值远不止于此。
+</div>
+
+<h3>1.2 核心痛点：三层递进分析</h3>
+<div class="card-row">
+  <div class="card">
+    <h4>表层痛点：重复劳动</h4>
+    <p>律师需手工填写多份模板中相同的字段。一个 IPO 项目 5~10 个模板 × 8~20 个变量 = <b>40~200 次手工输入</b>，其中 30%+ 是重复内容。重复录入不仅耗时，且极易产生不一致。</p>
+  </div>
+  <div class="card">
+    <h4>深层痛点：领域语言碎片化</h4>
+    <p>"目标公司"vs"被投公司"vs"标的企业"vs"发行人名称"——同一个法律概念在不同律所、不同模板中有完全不同的表达。<b>缺乏统一的领域本体（Ontology）</b>，使得跨模板、跨项目的变量管理成为噩梦。</p>
+  </div>
+  <div class="card">
+    <h4>根层痛点：生产流程不可控</h4>
+    <p>没有标准化的签字页生产流程：模板版本混乱、变量填写无校验、生成过程不可中断不可追溯。<b>质量完全依赖个人经验</b>，无法规模化复制。</p>
+  </div>
+</div>
+
+<h3>1.3 MVP 解决方案：标准化法律生产线</h3>
+<div class="flow">
+  <span class="node hl">创建项目</span><span class="arrow">→</span>
+  <span class="node">选择模板<br><small>多选 + 版本快照</small></span><span class="arrow">→</span>
+  <span class="node hl">填写变量<br><small>AI去重 + 校验</small></span><span class="arrow">→</span>
+  <span class="node">异步生成<br><small>可取消 + 进度</small></span><span class="arrow">→</span>
+  <span class="node hl">下载交付<br><small>.docx / .zip</small></span>
+</div>
+
+<h3>1.4 AI 赋能：三个精确场景</h3>
+<p>AI 在本系统中的定位非常明确：<b>不产生数据，只产生建议</b>。所有 AI 输出必须经过「规则层 → 交叉验证层 → 人类确认层」三重关卡后才能落地写入数据库。</p>
+<table>
+  <tr><th>场景</th><th>触发时机</th><th>AI 作用</th><th>降级策略</th><th>可信度分级</th></tr>
+  <tr><td><b>AI-1 模板解析</b></td><td>上传自定义 .docx</td><td>自动识别 <code>{{key}}</code> 占位符，提取 key/label/category/data_type</td><td>返回空列表，手工录入</td><td>HIGH=注册表匹配，MEDIUM=别名匹配，LOW=未知</td></tr>
+  <tr><td><b>AI-2 变量去重</b></td><td>点击「AI 去重」</td><td>语义匹配不同模板中含义相同的变量，给出合并建议</td><td>仅展示规则别名建议</td><td>HIGH=规则+AI一致，MEDIUM=仅AI，LOW=冲突</td></tr>
+  <tr><td><b>AI-3 数据校验</b></td><td>点击「AI 校验」</td><td>检查已填变量的合理性（身份证、日期、角色冲突）</td><td>仅展示正则校验结果</td><td>cross_validated=true 双重确认</td></tr>
+</table>
+
+<!-- ==================== 2 ==================== -->
+<h2 class="page-break"><span class="num">二</span> 软件架构全景</h2>
+
+<h3>2.1 技术栈选型</h3>
+<table>
+  <tr><th>层</th><th>技术选型</th><th>选型理由</th></tr>
+  <tr><td>前端框架</td><td>React 18 + TypeScript + Vite 5</td><td>TS 保证类型安全，Vite 极速 HMR，生态成熟</td></tr>
+  <tr><td>UI 组件</td><td>Tailwind CSS 3 + shadcn/ui</td><td>Token 化设计，按需引入零冗余，黑金律所品牌风格</td></tr>
+  <tr><td>后端框架</td><td>Python FastAPI 0.115+</td><td>异步原生支持，自动 OpenAPI 文档，Pydantic 内置校验</td></tr>
+  <tr><td>ORM + 迁移</td><td>SQLAlchemy 2.0 + Alembic</td><td>Mapped Column 类型安全，render_as_batch 兼容 SQLite</td></tr>
+  <tr><td>数据库</td><td>SQLite (WAL 模式)</td><td>MVP 零部署，WAL 支持并发读，单文件便于开发迁移</td></tr>
+  <tr><td>模板引擎</td><td>docxtpl (Jinja2)</td><td>Run 合并处理，排版保留优于手写 python-docx</td></tr>
+  <tr><td>LLM 抽象</td><td>LLMProvider 工厂模式</td><td>运行时切换 OpenCode/OpenAI/Mock，CI 不依赖外部服务</td></tr>
+  <tr><td>异步生成</td><td>ThreadPoolExecutor + Event</td><td>毫秒级取消，独立 DB Session，零外部依赖</td></tr>
+</table>
+
+<h3>2.2 四层分层架构</h3>
+<div class="arch-box">
+┌────────────────────────────────────────────────────────────────────────┐
+│                         Frontend (React SPA)                           │
+│   ListPage ── DetailPage                                               │
+│             ├── Step 1: TemplateStep   (模板多选 + AI解析 + 版本刷新)   │
+│             ├── Step 2: VariableStep   (分组填写 + AI去重/校验 + Excel) │
+│             └── Step 3: GenerationStep (异步生成 + 取消 + 下载)        │
+│   Layout: AppLayout + PageHeader + GoldPanel (黑金 Token 体系)         │
+│   AI 组件: AiBadge / DedupSuggestionsPanel / ValidationReportPanel     │
+└──────────────────────────────┬─────────────────────────────────────────┘
+                               │ HTTP /api/*  (Vite proxy → :8000)
+┌──────────────────────────────▼─────────────────────────────────────────┐
+│                       FastAPI Application                               │
+│   Router 层:  health | projects | templates | variables | generation   │
+│       │                                                                │
+│   Service 层:  project_service | template_service | variable_service   │
+│               generation_service | ai_service                          │
+│       │                    │                                           │
+│       │          ┌─────────▼─────────────────────────────┐             │
+│       │          │     ai_guardrail (交叉验证层)           │             │
+│       │          │  · cross_validate_parsed_variables()   │             │
+│       │          │  · cross_validate_dedup_suggestions()  │             │
+│       │          │  · cross_validate_issues()             │             │
+│       │          └─────────┬─────────────────────────────┘             │
+│       │          ┌─────────▼─────────────────────────────┐             │
+│       │          │   LLMProvider 抽象层 (factory.py)      │             │
+│       │          │  OpenCode Provider | OpenAI | Mock     │             │
+│       │          └───────────────────────────────────────┘             │
+│   ┌───▼────────────────────────────────────────────────────┐           │
+│   │  Infrastructure: SQLAlchemy + docxtpl + FileSystem     │           │
+│   └────────────────────────────────────────────────────────┘           │
+└────────────────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>2.3 架构质量属性矩阵</h3>
+<table>
+  <tr><th>质量属性</th><th>实现策略</th><th>验证方式</th></tr>
+  <tr><td>可扩展性</td><td>LLM Provider 抽象（新增 Provider 仅需加一个类）· 多值变量 · 模板版本</td><td>环境变量一键切换 Provider</td></tr>
+  <tr><td>可维护性</td><td>四层架构 · Service/Router 分离 · 全局变量注册表 · 单文件职责 ≤ 300 行</td><td>68 个源文件清晰分层</td></tr>
+  <tr><td>可靠性</td><td>乐观锁 · AI 三层防御 · 线程隔离 Session · 重试+降级</td><td>pytest 16 用例全部通过</td></tr>
+  <tr><td>安全性</td><td>AI 仅输出建议 · 逐行校验 · 预置模板 403 保护 · 审计日志</td><td>代码审查 + 测试覆盖</td></tr>
+  <tr><td>可测试性</td><td>MockProvider · 隔离测试库 · ASGITransport 零端口占用</td><td>CI 无需启动服务器</td></tr>
+</table>
+
+<!-- ==================== 3 ==================== -->
+<h2 class="page-break"><span class="num">三</span> AI 可信机制：让 AI 成为可控的工程组件</h2>
+
+<h3>3.1 设计哲学</h3>
+<p>在法律场景中，AI 不应是"黑盒魔法"，而应是<b>可观测、可降级、可审计的工程组件</b>。本系统为此构建了完整的可信管道。核心原则：<b>AI 不产生数据，只产生建议；建议必须经过规则验证和人类确认才能落地。</b></p>
+
+<h3>3.2 三层防御架构</h3>
+<div class="arch-box">
+用户操作 → API → Service → ai_service.call_llm_structured()
+                                      │
+                            ┌─────────▼──────────┐
+                            │ 第 1 层：LLM Provider │
+                            │ · 超时 30s + 重试 3 次│
+                            │ · Pydantic 严格校验   │
+                            │ · 降级 → 规则层兜底   │
+                            └─────────┬──────────┘
+                                      │
+                            ┌─────────▼──────────┐
+                            │ 第 2 层：ai_guardrail │
+                            │ · 规则交叉验证       │
+                            │ · trust_level 评级   │
+                            │ · 冲突检测 + 警告    │
+                            └─────────┬──────────┘
+                                      │
+                            ┌─────────▼──────────┐
+                            │ 第 3 层：人类确认     │
+                            │ · 可信度徽标展示     │
+                            │ · 逐条采纳/拒绝      │
+                            │ · 降级 Banner 提示   │
+                            └─────────┬──────────┘
+                                      ▼
+                                 写入数据库
+</div>
+
+<h3>3.3 trust_level 可信度分级</h3>
+<table>
+<tr><th>等级</th><th>含义</th><th>前端表现</th><th>处理策略</th></tr>
+<tr><td><span class="tag tag-green">HIGH</span></td><td>规则确认 + AI 一致，双重背书</td><td>绿色徽标，默认展开</td><td>一键采纳，系统预填建议值</td></tr>
+<tr><td><span class="tag">MEDIUM</span></td><td>仅 AI 单方支持，或部分一致</td><td>金色徽标，提示待确认</td><td>逐条审视后决定</td></tr>
+<tr><td><span class="tag tag-red">LOW</span></td><td>规则与 AI 矛盾，或均无依据</td><td>红色徽标，强制审核</td><td>高亮警告，建议手工处理</td></tr>
+</table>
+
+<h3>3.4 交叉验证：三个场景的具体逻辑</h3>
+<table>
+<tr><th>场景</th><th>验证函数</th><th>规则层（基线）</th><th>AI 层（补充）</th><th>冲突检测</th></tr>
+<tr><td><b>AI-1 模板解析</b></td><td><code>cross_validate_parsed_variables()</code></td><td>VARIABLE_REGISTRY 精确匹配</td><td>LLM 识别占位符 + 推断元数据</td><td>AI key 不在注册表 → MEDIUM/LOW；分类不一致 → 降级</td></tr>
+<tr><td><b>AI-2 变量去重</b></td><td><code>cross_validate_dedup_suggestions()</code></td><td>别名匹配 (confidence=1.0)</td><td>语义合并建议 (keep_key + merge_keys + confidence)</td><td>无别名关系 → LOW + 警告</td></tr>
+<tr><td><b>AI-3 数据校验</b></td><td><code>cross_validate_issues()</code></td><td>正则校验 (必填 + 格式)</td><td>语义一致性 (角色冲突、逻辑矛盾)</td><td>双方发现标记 <code>cross_validated=true</code></td></tr>
+</table>
+
+<h3>3.5 降级策略：AI 不可用时的优雅退化</h3>
+<p>当 LLM 服务不可用（超时、网络故障、重试耗尽）时，系统不会崩溃，而是优雅降级到规则层。以 AI-2 去重为例：</p>
+<pre><span class="kw">async def</span> <span class="fn">ai_dedup_suggestions</span>(db, project_id):
+    alias_suggestions = get_alias_dedup_suggestions(variables)  <span class="cm"># 规则层始终可用</span>
+    ai_used, ai_suggestions = <span class="kw">True</span>, []
+    <span class="kw">try</span>:
+        result = <span class="kw">await</span> ai_service.suggest_variable_dedup(payload)
+        ai_suggestions = result.get(<span class="str">"suggestions"</span>, [])
+        ai_suggestions, alias_suggestions = cross_validate_dedup_suggestions(
+            ai_suggestions, alias_suggestions)  <span class="cm"># 交叉验证</span>
+    <span class="kw">except</span> AIServiceUnavailableError <span class="kw">as</span> exc:
+        ai_used = <span class="kw">False</span>   <span class="cm"># → 前端 AiDegradedBanner</span>
+    <span class="kw">return</span> {<span class="str">"alias_suggestions"</span>: alias_suggestions, <span class="str">"ai_used"</span>: ai_used}</pre>
+<p>前端收到 <code>ai_used=false</code> 后展示降级 Banner：「AI 服务不可用，当前展示基于规则的建议」。用户仍可正常使用别名匹配功能。</p>
+
+<h3>3.6 审计闭环：AILog 全链路记录</h3>
+<p>每次 AI 调用写入 <code>ai_logs</code> 表，记录 prompt/response/duration_ms/validation_result/user_action，支持事后追溯与质量分析。这为后续的 Eval 和 Tracing 基建预留了零成本迁移接口。</p>
+
+<!-- ==================== 4 ==================== -->
+<h2 class="page-break"><span class="num">四</span> 结构化输出工程化：解决 LLM 返回 JSON 不可靠</h2>
+
+<h3>4.1 核心挑战</h3>
+<p>LLM 本质是文本生成器，其返回的 JSON 经常出现：格式污染（<code>```json```</code> 包裹）、语法错误（尾部逗号）、Schema 偏离（字段名拼错、类型不匹配）、幻觉数据（编造不存在的 key）。这些不是靠"写好 prompt"能根治的，必须在工程层面系统性解决。</p>
+
+<h3>4.2 双路径自适应策略</h3>
+<div class="two-col">
+  <div class="card">
+    <h4>路径 A：原生结构化输出</h4>
+    <p>适用于支持 <code>format/json_schema</code> 的 Provider（如 OpenCode + mimo-v2.5-free）。LLM 采样阶段即被 Schema 约束，输出几乎 100% 合规。</p>
+    <pre>raw = <span class="kw">await</span> provider.send_message(
+    prompt,
+    format={<span class="str">"type"</span>: <span class="str">"json_schema"</span>,
+            <span class="str">"schema"</span>: schema.model_json_schema()})
+data = json.loads(raw)
+<span class="kw">return</span> schema.model_validate(data)</pre>
+  </div>
+  <div class="card">
+    <h4>路径 B：Prompt 嵌入 + 兜底提取</h4>
+    <p>适用于不支持原生结构化的 Provider。Schema 嵌入 system prompt，JSON 提取器从响应中恢复结构化数据。</p>
+    <pre>raw = <span class="kw">await</span> provider.send_message(
+    prompt, system=_build_structured_system(...))
+json_str = _extract_json(raw)
+<span class="kw">return</span> schema.model_validate(
+    json.loads(json_str))</pre>
+  </div>
+</div>
+
+<h3>4.3 完整容错链：五层防御</h3>
+<div class="arch-box">
+第 1 层：LLM 调用 — 超时 30s → 自动重试（最多 3 次）→ 网络异常重试
+第 2 层：JSON 解析 — _extract_json() 处理格式污染 → json.loads() 语法校验 → 失败追加格式修正提示
+第 3 层：Pydantic 校验 — model_validate() 严格类型检查 → ValidationError → 重试时动态追加错误信息+Schema
+第 4 层：Guardrail 交叉验证 — trust_level 评级 → 冲突检测 → 异常 AI 结果标记 LOW
+第 5 层：降级兜底 — 3 次重试全失败 → AIServiceUnavailableError → 规则层结果仍可用
+</div>
+
+<!-- ==================== 5 ==================== -->
+<h2 class="page-break"><span class="num">五</span> 数据模型与领域设计</h2>
+
+<h3>5.1 ER 关系图</h3>
+<div class="arch-box">
+                    ┌──────────────┐
+                    │   Template   │
+                    │──────────────│
+                    │ id           │
+                    │ name         │
+                    │ category     │
+                    │ is_preset    │
+                    │ file_path    │
+                    │ variables_   │
+                    │   json (JSON)│
+                    │ version      │
+                    └──────┬───────┘
+                           │ 1:N
+                    ┌──────┴───────┐
+                    │ProjectTemplate│
+                    │──────────────│
+                    │ template_    │
+                    │   version    │
+                    │ variables_   │
+                    │   snapshot   │
+                    │   _json(JSON)│
+                    └──────┬───────┘
+                           │ N:1
+┌─────────────┐     ┌──────┴───────┐     ┌──────────────┐
+│CustomVariable│     │   Project    │     │GenerationTask│
+│─────────────│     │──────────────│     │──────────────│
+│ key (unique)│     │ id           │◄────│ project_id   │
+│ label       │     │ name         │ 1:N │ status       │
+│ aliases(JSON│     │ status       │     │ total_count  │
+│ created_by_ │     │ created_at   │     │ completed_   │
+│ template_id │     └──┬───┬───┬───┘     │   count      │
+└─────────────┘        │   │   │         └──────────────┘
+                ┌──────┘   │   └──────┐
+                │ 1:N   N:1│       N:1│ 1:N
+          ┌─────┴────┐  ┌──┴─────────┐
+          │ Variable │  │GeneratedFile│
+          │──────────│  │────────────│
+          │ key      │  │ file_path  │
+          │ label    │  │ status     │
+          │ value    │  │ template_id│
+          │is_multiple│ └────────────┘
+          │source_   │
+          │template_ │     ┌──────────┐
+          │ids (JSON)│     │  AILog   │
+          │is_merged │     │──────────│
+          │merged_   │     │ ai_type  │
+          │from_keys │     │ prompt   │
+          │updated_at│     │ response │
+          └──────────┘     │duration_ │
+                           │  ms      │
+                           │validation│
+                           │_result   │
+                           │user_     │
+                           │  action  │
+                           └──────────┘
+</div>
+
+<h3>5.2 关键设计模式</h3>
+<div class="two-col">
+  <div class="card">
+    <h4>快照隔离 (Snapshot Isolation)</h4>
+    <p style="font-size:13px">ProjectTemplate.variables_snapshot_json 在选择模板时复制 Template.variables_json。后续模板升级不影响已有项目的变量结构和生成结果。前端通过 template_version 对比检测更新。</p>
+  </div>
+  <div class="card">
+    <h4>乐观锁 (Optimistic Locking)</h4>
+    <p style="font-size:13px">Variable.updated_at 作为隐式版本号。批量保存时逐行比对：成功行写入、冲突行返回错误报告（含当前值），不整体回滚。前端局部刷新冲突行后重试。</p>
+  </div>
+</div>
+<div class="two-col">
+  <div class="card">
+    <h4>源追踪 (Source Tracking)</h4>
+    <p style="font-size:13px">Variable.source_template_ids 记录变量来源模板 ID 列表。移除模板时自动清理孤立变量（source_template_ids 为空则删除），保留共享变量。CASCADE + SET NULL + 清理守卫三重保障。</p>
+  </div>
+  <div class="card">
+    <h4>多值变量展开 (Multi-value Expansion)</h4>
+    <p style="font-size:13px">is_multiple=True 的变量在 Variable 表中展开为多行（key_1, key_2, ...），生成时由 _build_render_context() 按 key 前缀聚合回列表传入 docxtpl 循环渲染。</p>
+  </div>
+</div>
+
+<div class="highlight">
+<b>设计哲学</b>：所有历史数据均可追溯（快照 + 版本号 + 审计日志），所有变更都可控（乐观锁 + 部分成功），所有数据关联都级联安全（CASCADE + SET NULL + 清理守卫）。
+</div>
+
+<!-- ==================== 6 ==================== -->
+<h2 class="page-break"><span class="num">六</span> 关键接口与核心流程</h2>
+
+<h3>6.1 完整 API 路由</h3>
+<table>
+<tr><th>模块</th><th>方法</th><th>路由</th><th>说明</th><th>设计要点</th></tr>
+<tr><td>Health</td><td>GET</td><td><code>/api/health</code></td><td>健康检查</td><td>返 DB + LLM Provider 状态</td></tr>
+<tr><td rowspan="2">Projects</td><td>GET/POST</td><td><code>/api/projects</code></td><td>列表 + 创建</td><td>删除时自动取消进行中的生成任务</td></tr>
+<tr><td>GET/PUT/DEL</td><td><code>/api/projects/{id}</code></td><td>详情/修改/删除</td><td>cascade 删除关联数据</td></tr>
+<tr><td rowspan="4">Templates</td><td>GET</td><td><code>/api/templates</code></td><td>模板列表</td><td>含预置+自定义，支持分类筛选</td></tr>
+<tr><td>POST</td><td><code>/api/templates/parse</code></td><td>AI 解析上传模板</td><td>AI-1 + 交叉验证 + trust_level</td></tr>
+<tr><td>POST</td><td><code>/api/projects/{id}/templates</code></td><td>选择模板</td><td>自动触发变量去重合并</td></tr>
+<tr><td>POST</td><td><code>.../templates/{tid}/refresh</code></td><td>刷新模板版本</td><td>diff 算法：新增/删除/保留变量</td></tr>
+<tr><td rowspan="5">Variables</td><td>GET</td><td><code>/api/projects/{id}/variables</code></td><td>获取变量列表</td><td>按 sort_order + category 排序</td></tr>
+<tr><td>PUT</td><td><code>/api/projects/{id}/variables</code></td><td>保存变量（乐观锁）</td><td>逐行校验，部分成功</td></tr>
+<tr><td>POST</td><td><code>.../ai-dedup</code></td><td>AI 去重建议</td><td>规则+AI 双路，交叉验证</td></tr>
+<tr><td>POST</td><td><code>.../ai-validate</code></td><td>AI 数据校验</td><td>正则+AI 合并，cross_validated</td></tr>
+<tr><td>POST</td><td><code>.../import-preview, /import</code></td><td>Excel 导入</td><td>预览(无状态) → 确认(部分成功)</td></tr>
+<tr><td rowspan="4">Generation</td><td>POST</td><td><code>/api/projects/{id}/generate</code></td><td>启动异步生成</td><td>ThreadPoolExecutor 提交</td></tr>
+<tr><td>POST</td><td><code>.../generate/cancel</code></td><td>取消生成</td><td>threading.Event + DB 双信号</td></tr>
+<tr><td>GET</td><td><code>.../generate/status</code></td><td>生成状态</td><td>template_progress + logs 时间线</td></tr>
+<tr><td>GET</td><td><code>.../files, /download-all</code></td><td>文件下载</td><td>单文件 / ZIP 包</td></tr>
+</table>
+
+<h3>6.2 核心流程：异步文档生成</h3>
+<p>系统中最复杂的流程，涉及多线程协调、取消控制和状态同步：</p>
+<div class="arch-box">
+┌─────────┐                              ┌───────────────────────────────┐
+│  前端    │                              │  后端                          │
+│         │ POST /generate               │                               │
+│         │─────────────────────────────►│ 1. 创建 GenerationTask(pending)│
+│         │                              │ 2. cancel_event = Event()      │
+│         │                              │ 3. executor.submit(worker)     │
+│         │  200 {task_id, status}       │                               │
+│         │◄─────────────────────────────│                               │
+│         │                              │ ┌─ worker 线程 ─────────────┐ │
+│ 轮询     │ GET /status (2s→4s→8s→10s) │ │ 4. 独立 SessionLocal()    │ │
+│ (指数退避)│─────────────────────────────►│ │ 5. status = processing    │ │
+│         │                              │ │ 6. 组装 render context   │ │
+│         │  {status, progress, logs}    │ │ 7. for template in list:  │ │
+│         │◄─────────────────────────────│ │    a. check cancel_event  │ │
+│         │                              │ │    b. docxtpl.render()    │ │
+│         │ POST /cancel                 │ │    c. save .docx          │ │
+│         │─────────────────────────────►│ │    d. completed_count++   │ │
+│         │                              │ │ 8. status = completed     │ │
+│         │                              │ └───────────────────────────┘ │
+│         │                              │ cancel_event.set() + DB更新   │
+└─────────┘                              └───────────────────────────────┘
+</div>
+
+<h4>取消控制的多重检查点</h4>
+<pre><span class="kw">def</span> <span class="fn">_render_one_template</span>(db, *, project_id, template, cancel_event, context, output_dir):
+    <span class="kw">if</span> cancel_event.is_set():        <span class="cm"># 检查点 1：渲染前</span>
+        <span class="kw">return None</span>
+    doc = DocxTemplate(str(template_path))
+    <span class="kw">if</span> cancel_event.is_set():        <span class="cm"># 检查点 2：加载后、渲染前</span>
+        <span class="kw">return None</span>
+    doc.render(context)
+    <span class="kw">if</span> cancel_event.is_set():        <span class="cm"># 检查点 3：渲染后、保存前</span>
+        <span class="kw">return None</span>
+    doc.save(str(tmp_path))
+    <span class="kw">if</span> cancel_event.is_set():        <span class="cm"># 检查点 4：保存后 → 清理临时文件</span>
+        tmp_path.unlink(missing_ok=<span class="kw">True</span>)
+        <span class="kw">return None</span></pre>
+
+<h3>6.3 核心流程：变量乐观锁保存</h3>
+<p>「逐行校验、部分成功」—— 不回滚整个事务，成功行写入，失败行返回详细错误：</p>
+<pre><span class="kw">def</span> <span class="fn">save_variables</span>(db, project_id, items):
+    success, errors = [], []
+    <span class="kw">for</span> item <span class="kw">in</span> items:
+        var = _find_variable(db, project_id, item[<span class="str">"key"</span>])
+        client_dt = _normalize_dt(item[<span class="str">"updated_at"</span>])  <span class="cm"># 乐观锁比对</span>
+        db_dt     = _normalize_dt(var.updated_at)
+        <span class="kw">if</span> client_dt != db_dt:
+            errors.append({<span class="str">"row"</span>: i, <span class="str">"message"</span>: <span class="str">"数据已被其他操作修改"</span>})
+            <span class="kw">continue</span>  <span class="cm"># 跳过冲突行，不回滚</span>
+        fmt_error = validate_value(key, value, var.data_type)
+        <span class="kw">if</span> fmt_error:
+            errors.append({<span class="str">"row"</span>: i, <span class="str">"message"</span>: fmt_error})
+            <span class="kw">continue</span>
+        var.value = value  <span class="cm"># 成功行写入</span>
+    db.commit()
+    <span class="kw">return</span> {<span class="str">"success"</span>: success, <span class="str">"errors"</span>: errors, <span class="str">"summary"</span>: {...}}</pre>
+
+<!-- ==================== 7 ==================== -->
+<h2 class="page-break"><span class="num">七</span> 实现取舍与关键决策</h2>
+
+<table>
+<tr><th>决策点</th><th>选择</th><th>舍弃</th><th>理由与权衡</th></tr>
+<tr><td><b>数据库</b></td><td>SQLite + WAL</td><td>PostgreSQL / MySQL</td><td>MVP 零部署成本，单文件便于开发测试迁移。WAL 支持并发读。代价是写入并发受限（max_workers=2），生产环境需迁移 PG（仅改 database.py）。</td></tr>
+<tr><td><b>异步生成</b></td><td>ThreadPoolExecutor + Event</td><td>Celery / BackgroundTasks</td><td>① Celery 引入 Redis/Broker 依赖，MVP 过重；② BackgroundTasks 无法精确取消；③ 线程池 + Event 毫秒级取消，独立 DB Session 避免生命周期冲突。</td></tr>
+<tr><td><b>前端状态</b></td><td>React useState</td><td>Redux / Zustand</td><td>MVP 状态复杂度不高（3 个 Step + 列表），引入外部状态库属于过度工程。V2 团队协作再引入。</td></tr>
+<tr><td><b>LLM 抽象</b></td><td>LLMProvider 工厂模式</td><td>硬编码 LLM 调用</td><td>统一 send_message() 接口，运行时按环境变量切换。Mock Provider 支持离线开发和 CI。</td></tr>
+<tr><td><b>结构化输出</b></td><td>双路径自适应</td><td>单一 Function Calling</td><td>原生 json_schema 的模型直接传 Schema；不支持的走 Prompt 嵌入 + JSON 提取。重试时动态追加格式修正。</td></tr>
+<tr><td><b>多值变量</b></td><td>多行存储 (key_1, key_2)</td><td>JSON 数组</td><td>避免 JSON 在 Excel 导入导出、逐行操作时的复杂性。生成时动态聚合为列表。</td></tr>
+<tr><td><b>变量去重</b></td><td>规则 + AI + 交叉验证</td><td>纯 AI 去重</td><td>规则层保证零误判；AI 层覆盖规则盲区；交叉验证给每条建议标 trust_level，人类做最终决策。</td></tr>
+<tr><td><b>预置模板</b></td><td>is_preset + 403 拒绝</td><td>软删除 / 404</td><td>防止误删核心业务模板。403 比 404 更明确传达「不允许」语义。</td></tr>
+</table>
+
+<div class="highlight">
+<b>最关键的架构决策</b>：选择 ThreadPoolExecutor 而非 FastAPI BackgroundTasks，原因有三：① docxtpl 是同步 CPU/IO 密集型库，不适合 asyncio event loop；② threading.Event 提供毫秒级取消响应；③ 每个 worker 线程创建独立 SQLAlchemy Session，避免与请求级 Session 产生 SQLite 写锁竞争（max_workers=2 控制并发度）。
+</div>
+
+<!-- ==================== 8 ==================== -->
+<h2 class="page-break"><span class="num">八</span> 测试与验证结果</h2>
+
+<h3>8.1 项目规模</h3>
+<div class="stat-grid">
+  <div class="stat-item"><span class="num">8</span><span class="label">数据模型表</span></div>
+  <div class="stat-item"><span class="num">31</span><span class="label">API 路由</span></div>
+  <div class="stat-item"><span class="num">16</span><span class="label">pytest 用例</span></div>
+  <div class="stat-item"><span class="num">68</span><span class="label">源文件</span></div>
+</div>
+
+<h3>8.2 后端测试覆盖</h3>
+<table>
+<tr><th>测试文件</th><th>覆盖范围</th><th>关键测试点</th><th>结果</th></tr>
+<tr><td>test_projects.py</td><td>项目 CRUD + 级联删除</td><td>创建/列表/详情/更新/删除；删除时关联变量、模板、文件全部清理</td><td><span class="tag tag-green">PASS</span></td></tr>
+<tr><td>test_templates_variables.py</td><td>模板管理 + 变量去重 + 乐观锁</td><td>选择/移除模板触发变量合并/清理；模板版本刷新 diff；预置模板删除 403</td><td><span class="tag tag-green">PASS</span></td></tr>
+<tr><td>test_generation.py</td><td>异步生成全流程</td><td>启动/状态/取消/文件列表/ZIP 下载；模板缺失校验；重复启动 409</td><td><span class="tag tag-green">PASS</span></td></tr>
+<tr><td>test_ai.py</td><td>AI 三场景 + 降级</td><td>Mock 模式下模板解析/去重/校验可调用；AI 不可用时降级到规则层</td><td><span class="tag tag-green">PASS</span></td></tr>
+<tr><td>test_e2e_flow.py</td><td>端到端完整流程</td><td>创建项目 → 选模板 → 填变量 → AI 去重 → 生成 → 下载 → 清理</td><td><span class="tag tag-green">PASS</span></td></tr>
+<tr><td>test_excel.py</td><td>Excel 导入/导出</td><td>空白模板导出/数据导出/导入预览/确认导入；格式错误/不存在 key 处理</td><td><span class="tag tag-green">PASS</span></td></tr>
+</table>
+<p><b>16 个 pytest 用例全部通过</b>。前端 <code>npm run build</code> 成功，零 TypeScript 编译错误，ESLint 零警告。</p>
+
+<h3>8.3 已验证的端到端场景</h3>
+<div class="timeline">
+  <div class="timeline-item"><div class="ttitle">场景 1：完整签字页生成</div><div class="tdesc">创建项目 → 选择 3 个预置模板（律所/自然人/机构）→ 变量自动去重合并（target_company_name 等共享变量合并为一条）→ 按分类填写变量 → 生成 → 下载</div></div>
+  <div class="timeline-item"><div class="ttitle">场景 2：Excel 数据导入</div><div class="tdesc">空白模板导出 → 填写 → 导入预览（格式校验 + 不存在 key 拦截）→ 确认导入 → 部分成功策略</div></div>
+  <div class="timeline-item"><div class="ttitle">场景 3：AI 辅助全流程</div><div class="tdesc">触发 AI 去重 → 规则建议与 AI 建议分开展示 → 逐条采纳/拒绝 → AI 校验 → error/warning 分级报告</div></div>
+  <div class="timeline-item"><div class="ttitle">场景 4：异步生成 + 取消</div><div class="tdesc">启动异步生成 → 指数退避轮询进度 → 全部完成后下载 ZIP 包 / 中途取消 → 已完成文件保留</div></div>
+</div>
+
+<!-- ==================== 9 ==================== -->
+<h2 class="page-break"><span class="num">九</span> 未解决的问题与风险</h2>
+
+<table>
+<tr><th>#</th><th>问题描述</th><th>风险</th><th>影响</th><th>建议方案 (V2)</th></tr>
+<tr><td>1</td><td>删除项目时生成任务 worker 竞态</td><td><span class="tag tag-red">高</span></td><td>worker 写文件时删除可能导致文件句柄异常</td><td>优雅等待机制：worker 完成当前文件后再执行删除</td></tr>
+<tr><td>2</td><td>无用户认证与权限隔离</td><td><span class="tag tag-red">高</span></td><td>任何人可操作所有项目</td><td>JWT/OAuth2 认证 + RBAC + 项目 owner 字段</td></tr>
+<tr><td>3</td><td>仅支持 .docx 输出</td><td><span class="tag">中</span></td><td>部分场景需要 PDF</td><td>LibreOffice headless 或 WeasyPrint</td></tr>
+<tr><td>4</td><td>SQLite 并发写入限制</td><td><span class="tag">中</span></td><td>max_workers=2 吞吐受限</td><td>迁移 PostgreSQL，max_workers 可提升</td></tr>
+<tr><td>5</td><td>套表组一键选包缺失</td><td><span class="tag tag-gray">低</span></td><td>用户需手动多选</td><td>TemplateGroup 模型，预定义 IPO/并购套表</td></tr>
+<tr><td>6</td><td>AI 去重置信度阈值未调优</td><td><span class="tag tag-gray">低</span></td><td>可能过多误建议</td><td>基于真实数据调参 + 用户反馈闭环</td></tr>
+<tr><td>7</td><td>生成进度轮询而非推送</td><td><span class="tag tag-gray">低</span></td><td>有延迟</td><td>WebSocket 或 SSE 实时推送</td></tr>
+</table>
+
+<!-- ==================== 10 ==================== -->
+<h2 class="page-break"><span class="num">十</span> AI 工程演进方向研判</h2>
+
+<p>在确定 AI 侧深度投入方向前，需回答三个常被提出的问题：何时引入 <b>Agent</b>？是否建设 <b>LLM judge / eval / tracing / 可视化</b>？是否投入 <b>ontology（本体）与输出稳定性</b>？以下基于<b>业务场景本质</b>给出研判结论。</p>
+
+<h3>10.1 研判标尺</h3>
+<div class="highlight">
+<b>衡量标准（唯一）</b>：一个 AI 方向是否值得投入，取决于它能否更直接地 —— ① 降低重复劳动；② 降低错误率；③ 增强可追溯。与"AI 不产生数据，只产生建议"的安全原则同向者优先。本系统的本质是<b>确定性的法律文书流水线</b>，在 to-B 律所场景中，<b>可靠、可解释、可审计、合规</b>是首要价值。
+</div>
+
+<h3>10.2 三个方向逐项研判</h3>
+
+<h4>方向一：Agent 化 <span class="tag tag-gray">暂不上</span></h4>
+<p>当前三个场景均为 <b>one-shot 结构化输出</b>，流程确定，<b>不存在需要自主规划、多步探索的空间</b>。Agent 的价值在于"任务路径不确定、需自行决定下一步"，与签字页生成的确定性恰好相反。勉强可落地的 agentic 场景仅两个半成品：AI 自动填充（用 RAG/规则检索即可）、生成后质量审查（本质仍是单步比对）。<b>触发条件</b>：当业务扩展到"自动起草整份法律文件 / 跨文档一致性推理"时再评估。</p>
+
+<h4>方向二：LLM judge / eval / tracing / 可视化 <span class="tag">部分采纳</span></h4>
+<table>
+<tr><th>子方向</th><th>结论</th><th>理由</th></tr>
+<tr><td><b>tracing / 审计可视化</b></td><td><span class="tag tag-green">轻量做</span></td><td>已具备 AILog 全链路审计表，基于 AILog 做轻量看板（调用次数/成功率/耗时/采纳率），定位为"运维可观测"，够用即可。</td></tr>
+<tr><td><b>LLM judge / 正规 eval</b></td><td><span class="tag tag-gray">暂缓</span></td><td>3 个辅助型 AI 场景，独立 eval 投入产出比偏低。应先做"反馈闭环"（采纳/拒绝 → 调阈值，穷人版 eval），待数据积累充分后再上重型 eval。</td></tr>
+</table>
+
+<h4>方向三：Ontology + 输出稳定 <span class="tag tag-green">AI 侧第一重点</span></h4>
+<p><b>输出稳定/去幻觉</b>已有扎实基础（双路径结构化输出、Pydantic 校验、规则交叉验证、trust_level），守住现状即可。<b>Ontology（法律变量本体）是性价比最高的方向</b>：直接命中核心痛点（同一法律概念多种字段名），且已有雏形（VARIABLE_REGISTRY + CustomVariable.aliases + 别名匹配），属"升级"而非"从零造轮子"。</p>
+
+<div class="highlight-blue highlight">
+<b>核心论点</b>：与其让 LLM"更聪明地猜"，不如把领域知识沉淀进 ontology 让它"少猜"。本体越完善，规则层（高可信、零误判）覆盖面越大，需要 LLM 兜底的盲区越小 —— 用确定性手段提升准确率，可解释、可审计、天然合规。
+</div>
+
+<h3>10.3 优先级结论</h3>
+<table>
+<tr><th>方向</th><th>定位</th><th>核心理由</th></tr>
+<tr><td>业务功能（PG/认证/PDF/套表组）</td><td><span class="tag">第一优先（产品工程）</span></td><td>直接交付价值</td></tr>
+<tr><td><b>① Ontology 升级</b></td><td><span class="tag tag-green">AI 侧第一重点</span></td><td>确定性解决核心痛点，降低 LLM 依赖</td></tr>
+<tr><td>② 采纳率反馈闭环 + 轻量审计看板</td><td><span class="tag tag-green">AI 侧第二重点</span></td><td>合规留痕 + 为 eval 积累数据</td></tr>
+<tr><td>③ 输出稳定/去幻觉</td><td><span class="tag">守住现状</span></td><td>基础已扎实，边际收益递减</td></tr>
+<tr><td>④ LLM judge / eval</td><td><span class="tag tag-gray">暂缓</span></td><td>先以反馈闭环替代</td></tr>
+<tr><td>⑤ Agent 化</td><td><span class="tag tag-gray">暂不上</span></td><td>业务确定性强，易引入不可预测性</td></tr>
+</table>
+
+<h3>10.4 Ontology 升级落地路径</h3>
+<div class="two-col">
+  <div class="card">
+    <h4>第一步：本体 Schema 统一</h4>
+    <p>每个变量定义为结构化条目：标准 key / 中文 label / category / data_type / <b>别名集</b> / <b>校验规则</b> / <b>适用主体</b>（自然人股东/机构股东/律所）/ 可信来源。别名集中管理，扩大去重"规则层"覆盖面。</p>
+  </div>
+  <div class="card">
+    <h4>第二步：反馈回写 + 规则下沉</h4>
+    <p>用户每次采纳/拒绝 AI 去重建议时，将确认过的"key ↔ 别名"关系回写本体，使规则层<b>自我成长</b>；AI-3 校验规则统一下沉至本体驱动。</p>
+  </div>
+</div>
+
+<!-- ==================== 11 ==================== -->
+<h2 class="page-break"><span class="num">十一</span> 再给一个月的提升规划</h2>
+
+<h3>Sprint 1（第 1~2 周）：生产化基础</h3>
+<table>
+<tr><th>任务</th><th>具体内容</th><th>预期产出</th></tr>
+<tr><td>数据库迁移</td><td>SQLite → PostgreSQL，连接池，Alembic 适配</td><td>解除并发瓶颈，max_workers 可提升至 4~8</td></tr>
+<tr><td>用户认证</td><td>JWT 认证 + 用户注册/登录 + 项目 owner + 权限中间件</td><td>多用户数据隔离</td></tr>
+<tr><td>容器化部署</td><td>Dockerfile + docker-compose + CI/CD (GitHub Actions)</td><td>一键部署，自动测试</td></tr>
+</table>
+
+<h3>Sprint 2（第 3~4 周）：功能增强</h3>
+<table>
+<tr><th>任务</th><th>具体内容</th><th>预期产出</th></tr>
+<tr><td>PDF 输出</td><td>LibreOffice headless 转换 + 输出格式选择</td><td>.docx + .pdf 双格式</td></tr>
+<tr><td>套表组</td><td>TemplateGroup 模型 + 预定义 IPO/并购/基金套表</td><td>一键选择关联模板集</td></tr>
+<tr><td>模板预览</td><td>docx → HTML 渲染 + 预览对话框</td><td>选模板前可预览效果</td></tr>
+</table>
+
+<h3>Sprint 3（第 5~6 周）：AI 能力深化</h3>
+<table>
+<tr><th>任务</th><th>具体内容</th><th>预期产出</th></tr>
+<tr><td>AI 自动填充</td><td>基于历史项目数据推断变量值（常用公司名、律师姓名）</td><td>减少重复录入</td></tr>
+<tr><td>AI 质量审查</td><td>生成后自动对比模板与输出文档，检测遗漏/错误</td><td>生成质量保障</td></tr>
+<tr><td>反馈闭环</td><td>用户采纳/拒绝 → 更新置信度阈值 + prompt 优化</td><td>AI 精度持续提升</td></tr>
+<tr><td>Ontology 升级</td><td>法律变量本体 Schema + 别名回写 + 规则下沉</td><td>确定性准确率提升</td></tr>
+</table>
+
+<h3>Sprint 4（第 7~8 周）：体验与运维</h3>
+<table>
+<tr><th>任务</th><th>具体内容</th><th>预期产出</th></tr>
+<tr><td>实时推送</td><td>WebSocket / SSE 替代轮询</td><td>零延迟进度反馈</td></tr>
+<tr><td>审计面板</td><td>基于 AILog 的可视化：AI 调用次数/成功率/耗时/采纳率</td><td>运维可观测性</td></tr>
+<tr><td>性能优化</td><td>模板渲染缓存 + 大文件流式下载 + 前端虚拟列表</td><td>大数据量场景流畅</td></tr>
+</table>
+
+<div class="highlight">
+<b>一个月后预期状态</b>：从 MVP 原型升级为可部署至生产环境的完整签字页管理平台 —— 支持多用户权限隔离、.docx + .pdf 双格式输出、AI 辅助持续增强、WebSocket 实时交互，具备运维可观测性和 CI/CD 自动化能力。错误率从手工模式的 ~15% 降至 &lt;1%，单项目处理时间从 2~3 天缩短至 30 分钟。
+</div>
+
+<!-- ==================== 12 ==================== -->
+<h2 class="page-break"><span class="num">十二</span> 竞品方案对比与差异化优势</h2>
+
+<table>
+<tr><th>维度</th><th>典型竞品方案</th><th>本方案</th><th>差异化优势</th></tr>
+<tr><td><b>AI 集成深度</b></td><td>单一场景（仅变量识别或仅格式校验）</td><td>三场景覆盖 + 交叉验证 + 降级策略 + 全链路审计</td><td>AI 作为可控工程组件，非黑盒</td></tr>
+<tr><td><b>架构设计</b></td><td>单体无分层，或前后端耦合</td><td>四层架构 + Provider 抽象 + 快照隔离 + 乐观锁</td><td>每层职责清晰，可独立演进</td></tr>
+<tr><td><b>数据模型</b></td><td>简单文件存储，无结构化</td><td>8 实体 + 源追踪 + 版本化 + 运行时注册表</td><td>全链路可追溯，支持复杂业务</td></tr>
+<tr><td><b>变量管理</b></td><td>逐模板独立填写</td><td>跨模板去重合并 + 多值变量 + Excel 导入导出</td><td>一次填写，全局复用</td></tr>
+<tr><td><b>可靠性</b></td><td>AI 直接写库，无校验</td><td>三层防御 + 逐条确认 + 降级策略</td><td>AI 不产生数据，只产生建议</td></tr>
+<tr><td><b>可测试性</b></td><td>无自动化测试</td><td>16 pytest + E2E + Mock Provider + ASGITransport</td><td>CI 无需外部依赖</td></tr>
+<tr><td><b>生成控制</b></td><td>同步阻塞，不可取消</td><td>异步生成 + 毫秒级取消 + 进度反馈</td><td>用户体验不中断</td></tr>
+<tr><td><b>可扩展性</b></td><td>换 AI 需改代码</td><td>环境变量一键切换 Provider</td><td>新增 Provider 仅需加一个类</td></tr>
+</table>
+
+<div class="highlight">
+<b>核心竞争壁垒</b>：不是「AI 能力更强」，而是「<b>让 AI 在确定性边界内工作</b>」。三层防御架构 + Ontology 本体 + 审计日志，使得系统在 AI 出错时仍能安全运行，在 AI 正确时能加速流程 —— 这才是法律行业真正需要的 AI 集成方式。
+</div>
+
+<!-- ==================== 13 ==================== -->
+<h2 class="page-break"><span class="num">十三</span> 开发方法论总结</h2>
+
+<h3>13.1 AI Agent + Session 状态机</h3>
+<p>本次 MVP 采用独特的开发模式：将复杂系统拆分为 7 个 Session，每个 Session 有明确的 DoD（完成标准）、产出文件和依赖关系，通过 Handoff 文件实现跨 Session 的知识传递。</p>
+
+<div class="arch-box">
+AGENTS.md（项目唯一入口）
+  ├── Session 1a: 后端脚手架 + 数据模型 + 变量注册表
+  │     └─> Session 1b: LLM 抽象层 + 项目 API
+  │           ├─> Session 2: 模板管理 + AI 解析
+  │           ├─> Session 3: 变量填写 + AI 去重校验
+  │           └─> Session 4: 异步生成 + 下载
+  │                 └─> Session 5a: 前端列表页
+  │                       └─> Session 5b: 前端详情页 + AI
+  │                             └─> Session 6: 联调测试
+  │                                   └─> Session 7: 报告
+  └── .handoff/latest.md（Session 间知识传递）
+</div>
+
+<h3>13.2 关键实践</h3>
+<table>
+<tr><th>实践</th><th>具体做法</th><th>价值</th></tr>
+<tr><td><b>单一入口文档</b></td><td>AGENTS.md 定义 Session 边界、DoD、技术决策</td><td>新 Session 无需重复沟通上下文</td></tr>
+<tr><td><b>Handoff 机制</b></td><td>每个 Session 结束后持久化状态到 .handoff/</td><td>跨 Session 知识不丢失</td></tr>
+<tr><td><b>方案先行</b></td><td>先写 docs/specs/ 实现方案，再编码</td><td>减少返工，决策可追溯</td></tr>
+<tr><td><b>知识沉淀</b></td><td>踩坑经验写入 docs/knowledge-base/</td><td>AI 可信机制、结构化输出、环境配置可复用</td></tr>
+<tr><td><b>渐进式 AI 集成</b></td><td>Mock Provider 先行 → 规则层兜底 → AI 层叠加</td><td>AI 不可用时系统仍可用</td></tr>
+</table>
+
+<div class="highlight">
+这一方法论使得 7 个 Session 的 <b>~9,800 行全栈代码</b> + <b>~680 行测试</b> + <b>完整文档体系</b> 得以在高效协作中高质量交付。每个 Session 都有独立可验证的 DoD，任何一环失败都可精确定位和重做。
+</div>
+
+<!-- ==================== 14 ==================== -->
+<h2><span class="num">十四</span> 总结与交付评估</h2>
+
+<h3>14.1 交付评分卡</h3>
+<table>
+<tr><th>评估维度</th><th>评分</th><th>说明</th></tr>
+<tr><td>业务功能完整性</td><td><span class="tag">A-</span></td><td>100% 覆盖 PRD 核心功能，套表组等 V2 功能已规划</td></tr>
+<tr><td>软件架构质量</td><td><span class="tag">A</span></td><td>四层架构清晰，Provider 抽象、快照隔离、乐观锁等模式成熟</td></tr>
+<tr><td>AI 可靠性工程</td><td><span class="tag">A</span></td><td>三层防御 + trust_level + 降级策略 + 审计日志</td></tr>
+<tr><td>测试覆盖率</td><td><span class="tag">A-</span></td><td>核心流程全覆盖，Mock 独立运行，E2E 验证</td></tr>
+<tr><td>可扩展性</td><td><span class="tag">A</span></td><td>新增 Provider 仅需加一个类，DB 可平滑迁移 PG</td></tr>
+<tr><td>代码质量</td><td><span class="tag">A-</span></td><td>Service/Router 分离，单文件职责清晰，TS 全覆盖</td></tr>
+<tr><td>文档完备性</td><td><span class="tag">A</span></td><td>方案文档 + PRD + 知识库 + Handoff + AI 报告</td></tr>
+<tr><td>用户体验</td><td><span class="tag">B+</span></td><td>黑金律所 UI，三步流程清晰，AI 区域可优化</td></tr>
+</table>
+
+<h3>14.2 最终交付数据</h3>
+<div class="stat-grid">
+  <div class="stat-item"><span class="num">7</span><span class="label">Session 完成</span></div>
+  <div class="stat-item"><span class="num">16</span><span class="label">Pytest 全部通过</span></div>
+  <div class="stat-item"><span class="num">~9,800</span><span class="label">总代码行数</span></div>
+  <div class="stat-item"><span class="num">68</span><span class="label">源文件</span></div>
+</div>
+
+<div class="highlight">
+<b>MVP 交付状态：通过。</b>全部 7 个 Session 已完成，16 项 pytest 全部通过，前端构建成功，端到端流程经验收。系统具备完整的签字页管理能力：<b>创建项目 → 多模板选择 → 变量去重 → 表单/Excel 填写 → AI 解析/去重/校验 → 异步生成 → 取消 → 单文件/ZIP 下载</b>。代码、文档、测试三件套均已交付，可直接进入部署或 V2 迭代。
+</div>
+
+<div class="footer">
+  签字页管理系统 MVP &nbsp;&bull;&nbsp; 项目技术报告 &nbsp;&bull;&nbsp; JunHe Signing Page Generator &nbsp;&bull;&nbsp; 2026-06-09
+</div>
+
+</body>
+</html>

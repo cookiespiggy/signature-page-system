@@ -206,10 +206,33 @@ export function VariableStep({
     }
   }
 
+  const persistFields = async (): Promise<boolean> => {
+    if (!dirty) return true
+    try {
+      const items = fieldsToSaveItems(fields)
+      const result = await variablesApi.save(projectId, items)
+      if (result.summary.failed > 0) {
+        const firstError = result.errors[0]?.message ?? "部分变量保存失败"
+        toast.error(firstError)
+        if (result.summary.succeeded > 0) {
+          await onReload()
+        }
+        return false
+      }
+      await onReload()
+      onDirtyChange(false)
+      return true
+    } catch (error) {
+      toast.error(getErrorMessage(error))
+      return false
+    }
+  }
+
   const handleAiDedup = async () => {
     setDedupLoading(true)
     setDedupResult(null)
     try {
+      if (!(await persistFields())) return
       const result = await variablesApi.aiDedup(projectId)
       setDedupResult(result)
       if (
@@ -247,6 +270,7 @@ export function VariableStep({
     setValidateResult(null)
     setHighlightedKey(null)
     try {
+      if (!(await persistFields())) return
       const result = await variablesApi.aiValidate(projectId)
       setValidateResult(result)
       const highlights = buildValidationHighlights(fields, result.issues)

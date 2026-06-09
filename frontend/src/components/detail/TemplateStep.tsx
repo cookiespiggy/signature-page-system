@@ -49,6 +49,23 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "其他",
 }
 
+/** 模板 category 与筛选分组对齐（预置模板如 natural_shareholder → shareholder） */
+function matchesTemplateCategory(templateCategory: string, filter: string): boolean {
+  if (filter === "全部") return true
+  if (filter === "other") {
+    return !["lawyer", "shareholder", "company", "document"].some((group) =>
+      templateCategory.includes(group),
+    )
+  }
+  return templateCategory === filter || templateCategory.includes(filter)
+}
+
+function getTemplateCategoryLabel(category: string): string {
+  if (category.includes("shareholder")) return CATEGORY_LABELS.shareholder
+  if (category.includes("lawyer")) return CATEGORY_LABELS.lawyer
+  return CATEGORY_LABELS[category] ?? category
+}
+
 function TemplateCardSkeleton() {
   return (
     <div className="space-y-3 rounded-lg border border-primary/15 p-4">
@@ -96,7 +113,7 @@ export function TemplateStep({
   const filteredTemplates = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     return templates.filter((template) => {
-      if (category !== "全部" && template.category !== category) return false
+      if (!matchesTemplateCategory(template.category, category)) return false
       if (!keyword) return true
       return (
         template.name.toLowerCase().includes(keyword) ||
@@ -307,7 +324,7 @@ export function TemplateStep({
                       ) : null}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {CATEGORY_LABELS[template.category] ?? template.category}
+                      {getTemplateCategoryLabel(template.category)}
                       {" · "}
                       {template.variable_count} 个变量
                     </p>

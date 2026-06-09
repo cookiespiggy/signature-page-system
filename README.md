@@ -139,6 +139,7 @@ pkill -f "vite" 2>/dev/null
 - `docs/specs/` — 产品 PRD、实现方案、模板样例
 - `docs/knowledge-base/` — 环境配置、OpenCode Server、结构化输出、UI 设计规范、AI 可信机制
 - `docs/AI参与环节说明报告.md` — AI 参与环节说明报告
+- `docs/签字页管理系统MVP项目报告.html` — 项目总报告
 
 ## 状态与路线图
 
