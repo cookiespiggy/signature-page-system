@@ -12,6 +12,12 @@ import type {
   TemplateVariableDefinition,
 } from "@/types/template"
 import type {
+  AiDedupResponse,
+  AiValidateResponse,
+  ApplyDedupResponse,
+  DedupSuggestion,
+} from "@/types/ai"
+import type {
   BatchOperationResponse,
   VariableListResponse,
   VariableSaveItem,
@@ -254,6 +260,19 @@ export const variablesApi = {
       `/projects/${projectId}/variables/export`,
       `project_${projectId}_variables.xlsx`,
     ),
+  aiDedup: (projectId: number) =>
+    request<AiDedupResponse>(`/projects/${projectId}/variables/ai-dedup`, {
+      method: "POST",
+    }),
+  applyDedup: (projectId: number, suggestions: DedupSuggestion[]) =>
+    request<ApplyDedupResponse>(`/projects/${projectId}/variables/apply-dedup`, {
+      method: "POST",
+      body: JSON.stringify({ suggestions }),
+    }),
+  aiValidate: (projectId: number) =>
+    request<AiValidateResponse>(`/projects/${projectId}/variables/ai-validate`, {
+      method: "POST",
+    }),
 }
 
 export const generationApi = {

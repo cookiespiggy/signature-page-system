@@ -40,7 +40,8 @@ async def cancel_generation(
     db: Session = Depends(get_db),
 ) -> GenerationStatusResponse:
     task = generation_service.cancel_generation(db, project_id)
-    return GenerationStatusResponse.model_validate(task)
+    payload = generation_service.build_generation_status_response(db, task)
+    return GenerationStatusResponse.model_validate(payload)
 
 
 @router.get(
@@ -54,7 +55,8 @@ async def get_generation_status(
     task = generation_service.get_generation_status(db, project_id)
     if task is None:
         return None
-    return GenerationStatusResponse.model_validate(task)
+    payload = generation_service.build_generation_status_response(db, task)
+    return GenerationStatusResponse.model_validate(payload)
 
 
 @router.get(
@@ -73,6 +75,7 @@ async def list_generated_files(
                 project_id=f.project_id,
                 template_id=f.template_id,
                 template_name=f.template.name if f.template else None,
+                template_category=f.template.category if f.template else None,
                 file_path=f.file_path,
                 status=f.status,
                 created_at=f.created_at,

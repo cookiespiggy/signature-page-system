@@ -46,7 +46,7 @@ def cross_validate_parsed_variables(
                 trust = TrustLevel.MEDIUM
                 suggested_key = matched
                 warnings.append(
-                    f"变量 '{key}' ({label}) 可能对应标准变量 '{matched_key}'，"
+                    f"变量 '{key}' ({label}) 可能对应标准变量 '{matched}'，"
                     f"建议使用标准 key"
                 )
             else:

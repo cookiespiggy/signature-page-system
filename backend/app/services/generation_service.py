@@ -362,6 +362,183 @@ def get_generation_status(db: Session, project_id: int) -> GenerationTask | None
     return _get_latest_task(db, project_id)
 
 
+def _task_files_by_template(
+    db: Session, task: GenerationTask
+) -> dict[int, GeneratedFile]:
+    """本次任务起创建的生成文件，按 template_id 索引。"""
+    stmt = (
+        select(GeneratedFile)
+        .options(joinedload(GeneratedFile.template))
+        .where(
+            GeneratedFile.project_id == task.project_id,
+            GeneratedFile.created_at >= task.created_at,
+        )
+        .order_by(GeneratedFile.created_at.asc())
+    )
+    rows = list(db.scalars(stmt).unique().all())
+    by_template: dict[int, GeneratedFile] = {}
+    for row in rows:
+        by_template[row.template_id] = row
+    return by_template
+
+
+def _template_item_status(
+    index: int, task: GenerationTask, completed_count: int
+) -> str:
+    if task.status == "completed":
+        return "completed" if index < completed_count else "skipped"
+    if task.status == "failed":
+        if index < completed_count:
+            return "completed"
+        if index == completed_count:
+            return "failed"
+        return "pending"
+    if task.status == "cancelled":
+        return "completed" if index < completed_count else "skipped"
+    if task.status == "processing":
+        if index < completed_count:
+            return "completed"
+        if index == completed_count:
+            return "processing"
+        return "pending"
+    return "pending"
+
+
+def _build_template_progress(
+    templates: list[Template],
+    task: GenerationTask,
+    task_files: dict[int, GeneratedFile],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for index, template in enumerate(templates):
+        file_record = task_files.get(template.id)
+        items.append(
+            {
+                "template_id": template.id,
+                "template_name": template.name,
+                "template_category": template.category or "other",
+                "status": _template_item_status(index, task, task.completed_count),
+                "file_id": file_record.id if file_record else None,
+            }
+        )
+    return items
+
+
+def _build_generation_logs(
+    task: GenerationTask,
+    templates: list[Template],
+    task_files: dict[int, GeneratedFile],
+    progress: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    logs: list[dict[str, Any]] = [
+        {
+            "timestamp": task.created_at,
+            "level": "info",
+            "message": f"生成任务已创建，共 {task.total_count} 个模板待处理",
+            "template_name": None,
+        }
+    ]
+
+    if task.status in {"processing", "completed", "failed", "cancelled"}:
+        logs.append(
+            {
+                "timestamp": task.updated_at,
+                "level": "info",
+                "message": "后台生成已开始",
+                "template_name": None,
+            }
+        )
+
+    for template in templates:
+        file_record = task_files.get(template.id)
+        if file_record is None:
+            continue
+        logs.append(
+            {
+                "timestamp": file_record.created_at,
+                "level": "success",
+                "message": f"「{template.name}」生成完成",
+                "template_name": template.name,
+            }
+        )
+
+    if task.status == "processing":
+        current = next(
+            (item for item in progress if item["status"] == "processing"),
+            None,
+        )
+        if current:
+            logs.append(
+                {
+                    "timestamp": task.updated_at,
+                    "level": "info",
+                    "message": f"正在生成「{current['template_name']}」…",
+                    "template_name": current["template_name"],
+                }
+            )
+
+    if task.status == "failed" and task.error_message:
+        failed_item = next(
+            (item for item in progress if item["status"] == "failed"),
+            None,
+        )
+        logs.append(
+            {
+                "timestamp": task.updated_at,
+                "level": "error",
+                "message": task.error_message,
+                "template_name": failed_item["template_name"] if failed_item else None,
+            }
+        )
+
+    if task.status == "cancelled":
+        logs.append(
+            {
+                "timestamp": task.cancelled_at or task.updated_at,
+                "level": "warning",
+                "message": (
+                    f"任务已取消，已完成 {task.completed_count}/{task.total_count} 个文件"
+                ),
+                "template_name": None,
+            }
+        )
+
+    if task.status == "completed" and task.completed_at:
+        logs.append(
+            {
+                "timestamp": task.completed_at,
+                "level": "success",
+                "message": f"全部 {task.total_count} 个文件生成完成",
+                "template_name": None,
+            }
+        )
+
+    logs.sort(key=lambda item: item["timestamp"])
+    return logs
+
+
+def build_generation_status_response(db: Session, task: GenerationTask) -> dict[str, Any]:
+    """组装带模板进度与日志的生成状态响应。"""
+    templates = _get_project_templates(db, task.project_id)
+    task_files = _task_files_by_template(db, task)
+    progress = _build_template_progress(templates, task, task_files)
+    logs = _build_generation_logs(task, templates, task_files, progress)
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "status": task.status,
+        "total_count": task.total_count,
+        "completed_count": task.completed_count,
+        "error_message": task.error_message,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+        "completed_at": task.completed_at,
+        "cancelled_at": task.cancelled_at,
+        "template_progress": progress,
+        "logs": logs,
+    }
+
+
 def list_generated_files(db: Session, project_id: int) -> list[GeneratedFile]:
     get_project(db, project_id)
     stmt = (

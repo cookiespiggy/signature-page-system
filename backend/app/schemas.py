@@ -274,6 +274,21 @@ class GenerationStartResponse(BaseModel):
     status: str
 
 
+class TemplateProgressItem(BaseModel):
+    template_id: int
+    template_name: str
+    template_category: str
+    status: str
+    file_id: int | None = None
+
+
+class GenerationLogEntry(BaseModel):
+    timestamp: datetime
+    level: str
+    message: str
+    template_name: str | None = None
+
+
 class GenerationStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -287,6 +302,8 @@ class GenerationStatusResponse(BaseModel):
     updated_at: datetime
     completed_at: datetime | None = None
     cancelled_at: datetime | None = None
+    template_progress: list[TemplateProgressItem] = Field(default_factory=list)
+    logs: list[GenerationLogEntry] = Field(default_factory=list)
 
 
 class GeneratedFileResponse(BaseModel):
@@ -294,6 +311,7 @@ class GeneratedFileResponse(BaseModel):
     project_id: int
     template_id: int
     template_name: str | None = None
+    template_category: str | None = None
     file_path: str
     status: str
     created_at: datetime

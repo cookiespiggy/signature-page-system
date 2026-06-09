@@ -22,9 +22,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ParsedVariablesEditor } from "@/components/ai/ParsedVariablesEditor"
 import { GoldPanel } from "@/components/layout/GoldPanel"
 import { getErrorMessage, templatesApi } from "@/services/api"
-import type { ProjectTemplate, Template, TemplateVariableDefinition } from "@/types/template"
+import type { ParsedVariable, ProjectTemplate, Template } from "@/types/template"
 import { cn } from "@/lib/utils"
 
 interface TemplateStepProps {
@@ -74,7 +75,10 @@ export function TemplateStep({
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadName, setUploadName] = useState("")
-  const [parsedVars, setParsedVars] = useState<TemplateVariableDefinition[]>([])
+  const [parsedVars, setParsedVars] = useState<ParsedVariable[]>([])
+  const [parseAiUsed, setParseAiUsed] = useState(true)
+  const [parseMessage, setParseMessage] = useState<string | null>(null)
+  const [parseDurationMs, setParseDurationMs] = useState(0)
   const [parsing, setParsing] = useState(false)
   const [creating, setCreating] = useState(false)
   const [refreshingId, setRefreshingId] = useState<number | null>(null)
@@ -117,16 +121,10 @@ export function TemplateStep({
     setParsing(true)
     try {
       const result = await templatesApi.parse(file)
-      setParsedVars(
-        result.variables.map((v) => ({
-          key: v.key,
-          label: v.label,
-          category: v.category,
-          data_type: v.data_type,
-          required: v.required,
-          is_multiple: v.is_multiple,
-        })),
-      )
+      setParsedVars(result.variables)
+      setParseAiUsed(result.ai_used)
+      setParseMessage(result.message)
+      setParseDurationMs(result.parse_duration_ms)
       setUploadOpen(true)
     } catch (error) {
       toast.error(getErrorMessage(error))
@@ -140,12 +138,28 @@ export function TemplateStep({
       toast.error("请填写模板名称")
       return
     }
+    const validVars = parsedVars.filter((item) => item.key.trim() && item.label.trim())
+    if (validVars.length === 0) {
+      toast.error("请至少保留一个有效变量")
+      return
+    }
+    if (validVars.some((item) => item.trust_level === "low")) {
+      toast.error("存在需审核的变量，请修正 key、采纳建议或删除后再创建")
+      return
+    }
     setCreating(true)
     try {
       const created = await templatesApi.create({
         file: uploadFile,
         name: uploadName.trim(),
-        variables_json: parsedVars,
+        variables_json: validVars.map((item) => ({
+          key: item.key.trim(),
+          label: item.label.trim(),
+          category: item.category,
+          data_type: item.data_type,
+          required: item.required,
+          is_multiple: item.is_multiple,
+        })),
       })
       await onTemplatesReload()
       const next = new Set(selectedIds)
@@ -154,6 +168,7 @@ export function TemplateStep({
       setUploadOpen(false)
       setUploadFile(null)
       setParsedVars([])
+      setParseMessage(null)
       toast.success("自定义模板已创建")
     } catch (error) {
       toast.error(getErrorMessage(error))
@@ -368,11 +383,11 @@ export function TemplateStep({
       )}
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>创建自定义模板</DialogTitle>
             <DialogDescription>
-              AI 已解析模板变量，确认后将创建模板并加入当前选择。
+              请确认或修正 AI 解析的变量列表，低可信变量需审核后方可创建。
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -380,19 +395,13 @@ export function TemplateStep({
             value={uploadName}
             onChange={(event) => setUploadName(event.target.value)}
           />
-          <div className="space-y-2">
-            <p className="text-xs tracking-wider text-primary/70 uppercase">
-              解析到 {parsedVars.length} 个变量
-            </p>
-            <ul className="max-h-48 space-y-1 overflow-y-auto rounded border border-primary/15 p-3 text-sm">
-              {parsedVars.map((variable) => (
-                <li key={variable.key} className="flex justify-between gap-2">
-                  <span>{variable.label}</span>
-                  <code className="text-xs text-muted-foreground">{variable.key}</code>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ParsedVariablesEditor
+            variables={parsedVars}
+            aiUsed={parseAiUsed}
+            parseDurationMs={parseDurationMs}
+            degradedMessage={parseMessage}
+            onChange={setParsedVars}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)} disabled={creating}>
               取消

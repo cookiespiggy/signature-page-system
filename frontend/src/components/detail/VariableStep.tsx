@@ -1,4 +1,4 @@
-import { Loader2, Minus, Plus, Upload } from "lucide-react"
+import { Loader2, Minus, Plus, Sparkles, Upload } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -12,6 +12,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { AiLoadingPanel } from "@/components/ai/AiLoadingPanel"
+import { DedupSuggestionsPanel } from "@/components/ai/DedupSuggestionsPanel"
+import { ValidationReportPanel } from "@/components/ai/ValidationReportPanel"
 import { VariableFieldInput } from "@/components/detail/VariableFieldInput"
 import { GoldPanel } from "@/components/layout/GoldPanel"
 import {
@@ -21,8 +24,13 @@ import {
   nextMultipleRowKey,
   type VariableField,
 } from "@/lib/variable-utils"
+import {
+  buildValidationHighlights,
+  scrollToVariableField,
+} from "@/lib/validation-highlight"
 import { validateVariableValue } from "@/lib/validation"
 import { getErrorMessage, variablesApi } from "@/services/api"
+import type { AiDedupResponse, AiValidateResponse, DedupSuggestion } from "@/types/ai"
 import type { BatchOperationResponse } from "@/types/variable"
 
 interface VariableStepProps {
@@ -59,9 +67,20 @@ export function VariableStep({
   const [importPreview, setImportPreview] = useState<BatchOperationResponse | null>(null)
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [dedupLoading, setDedupLoading] = useState(false)
+  const [validateLoading, setValidateLoading] = useState(false)
+  const [dedupResult, setDedupResult] = useState<AiDedupResponse | null>(null)
+  const [validateResult, setValidateResult] = useState<AiValidateResponse | null>(null)
+  const [highlightedKey, setHighlightedKey] = useState<string | null>(null)
+  const [applyingDedupKey, setApplyingDedupKey] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const grouped = useMemo(() => groupFieldsByCategory(fields), [fields])
+  const validationHighlights = useMemo(
+    () =>
+      validateResult ? buildValidationHighlights(fields, validateResult.issues) : {},
+    [fields, validateResult],
+  )
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -86,7 +105,11 @@ export function VariableStep({
       onFieldsChange(next)
       onDirtyChange(true)
 
-      const error = validateVariableValue(rowKey, value)
+      const field = next.find((item) => item.baseKey === baseKey)
+      const formatError = validateVariableValue(rowKey, value)
+      const requiredError =
+        field?.required && !value.trim() ? "此项为必填" : null
+      const error = requiredError ?? formatError
       setFieldErrors((prev) => {
         const updated = { ...prev }
         if (error) updated[rowKey] = error
@@ -183,6 +206,74 @@ export function VariableStep({
     }
   }
 
+  const handleAiDedup = async () => {
+    setDedupLoading(true)
+    setDedupResult(null)
+    try {
+      const result = await variablesApi.aiDedup(projectId)
+      setDedupResult(result)
+      if (
+        !result.ai_used &&
+        result.alias_suggestions.length === 0 &&
+        result.ai_suggestions.length === 0
+      ) {
+        toast.warning(result.message ?? "AI 服务不可用")
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error))
+    } finally {
+      setDedupLoading(false)
+    }
+  }
+
+  const handleAcceptDedup = async (suggestion: DedupSuggestion) => {
+    const id = `${suggestion.keep_key}:${suggestion.merge_keys.join(",")}`
+    setApplyingDedupKey(id)
+    try {
+      const result = await variablesApi.applyDedup(projectId, [suggestion])
+      await onReload()
+      onDirtyChange(false)
+      toast.success(`已合并 ${result.merged_rows} 行变量`)
+      setDedupResult(null)
+    } catch (error) {
+      toast.error(getErrorMessage(error))
+    } finally {
+      setApplyingDedupKey(null)
+    }
+  }
+
+  const handleAiValidate = async () => {
+    setValidateLoading(true)
+    setValidateResult(null)
+    setHighlightedKey(null)
+    try {
+      const result = await variablesApi.aiValidate(projectId)
+      setValidateResult(result)
+      const highlights = buildValidationHighlights(fields, result.issues)
+      setFieldErrors((prev) => {
+        const updated = { ...prev }
+        for (const [rowKey, bucket] of Object.entries(highlights)) {
+          if (bucket.errors[0]) {
+            updated[rowKey] = bucket.errors[0]
+          }
+        }
+        return updated
+      })
+      if (!result.ai_used && result.issues.length === 0) {
+        toast.warning(result.message ?? "AI 服务不可用，仅展示正则校验结果")
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error))
+    } finally {
+      setValidateLoading(false)
+    }
+  }
+
+  const handleValidationIssueClick = (variableKey: string) => {
+    setHighlightedKey(variableKey)
+    scrollToVariableField(variableKey)
+  }
+
   const downloadErrorReport = () => {
     if (!importPreview?.errors.length) return
     const lines = importPreview.errors.map(
@@ -247,14 +338,62 @@ export function VariableStep({
             event.target.value = ""
           }}
         />
+        <Button
+          variant="outline"
+          className="border-primary/30"
+          disabled={dedupLoading}
+          onClick={() => void handleAiDedup()}
+        >
+          {dedupLoading ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Sparkles className="size-4" />
+          )}
+          AI 智能去重
+        </Button>
+        <Button
+          variant="outline"
+          className="border-primary/30"
+          disabled={validateLoading}
+          onClick={() => void handleAiValidate()}
+        >
+          {validateLoading ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Sparkles className="size-4" />
+          )}
+          AI 校验
+        </Button>
       </div>
+
+      {dedupLoading ? <AiLoadingPanel label="正在分析变量语义…" /> : null}
+      {dedupResult ? (
+        <DedupSuggestionsPanel
+          result={dedupResult}
+          applyingKey={applyingDedupKey}
+          onAccept={handleAcceptDedup}
+          onDismiss={() => setDedupResult(null)}
+        />
+      ) : null}
+
+      {validateLoading ? <AiLoadingPanel label="正在校验数据一致性…" /> : null}
+      {validateResult ? (
+        <ValidationReportPanel
+          result={validateResult}
+          onDismiss={() => {
+            setValidateResult(null)
+            setHighlightedKey(null)
+          }}
+          onIssueClick={handleValidationIssueClick}
+        />
+      ) : null}
 
       {Array.from(grouped.entries()).map(([category, categoryFields]) => (
         <GoldPanel key={category} className="p-6">
           <h3 className="mb-4 font-heading text-lg">{getCategoryLabel(category)}</h3>
           <div className="space-y-5">
             {categoryFields.map((field) => (
-              <div key={field.baseKey}>
+              <div key={field.baseKey} id={`var-field-${field.baseKey}`}>
                 <label className="mb-2 block text-sm font-medium">
                   {field.label}
                   {field.required ? <span className="ml-1 text-destructive">*</span> : null}
@@ -263,8 +402,12 @@ export function VariableStep({
 
                 {field.isMultiple ? (
                   <div className="space-y-2">
-                    {field.rows.map((row, index) => (
-                      <div key={row.key} className="flex items-start gap-2">
+                    {field.rows.map((row, index) => {
+                      const highlight = validationHighlights[row.key]
+                      const isHighlighted =
+                        highlightedKey === row.key || highlightedKey === field.baseKey
+                      return (
+                      <div key={row.key} id={`var-field-${row.key}`} className="flex items-start gap-2">
                         <span className="mt-2.5 w-6 shrink-0 text-xs text-muted-foreground">
                           {index + 1}
                         </span>
@@ -272,7 +415,11 @@ export function VariableStep({
                           <VariableFieldInput
                             field={field}
                             value={row.value}
-                            error={fieldErrors[row.key]}
+                            error={fieldErrors[row.key] ?? highlight?.errors[0]}
+                            warning={
+                              !fieldErrors[row.key] ? highlight?.warnings[0] : undefined
+                            }
+                            highlighted={isHighlighted}
                             placeholder={`${field.label} ${index + 1}`}
                             onValueChange={(next) => updateRowValue(field.baseKey, row.key, next)}
                           />
@@ -288,7 +435,7 @@ export function VariableStep({
                           <Minus className="size-4" />
                         </Button>
                       </div>
-                    ))}
+                    )})}
                     <Button
                       type="button"
                       variant="outline"
@@ -304,7 +451,19 @@ export function VariableStep({
                   <VariableFieldInput
                     field={field}
                     value={field.rows[0]?.value ?? ""}
-                    error={fieldErrors[field.rows[0]?.key]}
+                    error={
+                      fieldErrors[field.rows[0]?.key] ??
+                      validationHighlights[field.rows[0]?.key]?.errors[0]
+                    }
+                    warning={
+                      !fieldErrors[field.rows[0]?.key]
+                        ? validationHighlights[field.rows[0]?.key]?.warnings[0]
+                        : undefined
+                    }
+                    highlighted={
+                      highlightedKey === field.rows[0]?.key ||
+                      highlightedKey === field.baseKey
+                    }
                     onValueChange={(next) =>
                       updateRowValue(field.baseKey, field.rows[0].key, next)
                     }

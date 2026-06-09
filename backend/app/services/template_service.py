@@ -492,10 +492,11 @@ def _find_variable_by_base_key(
     variables: list[Variable],
     base_key: str,
 ) -> Variable | None:
-    for var in variables:
-        if _base_key(var.key) == base_key:
-            return var
-    return None
+    candidates = sorted(
+        [v for v in variables if _base_key(v.key) == base_key],
+        key=lambda v: v.key,
+    )
+    return candidates[0] if candidates else None
 
 
 def _find_multiple_rows(variables: list[Variable], base_key: str) -> list[Variable]:

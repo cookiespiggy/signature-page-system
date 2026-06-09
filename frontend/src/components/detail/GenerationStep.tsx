@@ -1,5 +1,5 @@
 import { Download, Eye, FileText, Loader2, Package } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +21,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DocxPreviewDialog } from "@/components/detail/DocxPreviewDialog"
+import { GenerationLogPanel } from "@/components/detail/GenerationLogPanel"
+import { groupFilesByCategory } from "@/lib/generation-utils"
 import { GoldPanel } from "@/components/layout/GoldPanel"
 import { getCategoryLabel } from "@/lib/variable-utils"
 import { formatDateTime } from "@/lib/datetime"
@@ -35,6 +37,7 @@ interface GenerationStepProps {
 }
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"])
+const ACTIVE_STATUSES = new Set(["pending", "processing"])
 
 function extractFilename(path: string): string {
   const parts = path.split("/")
@@ -162,6 +165,9 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
       ? Math.round((task.completed_count / task.total_count) * 100)
       : 0
 
+  const isTaskActive = Boolean(task && ACTIVE_STATUSES.has(task.status))
+  const groupedFiles = useMemo(() => groupFilesByCategory(files), [files])
+
   const groupedConfirm = fields.reduce<Map<string, VariableField[]>>((acc, field) => {
     const list = acc.get(field.category) ?? []
     list.push(field)
@@ -211,23 +217,32 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
           </div>
         </div>
 
-        {generating && task ? (
+        {task && (generating || isTaskActive || task.logs.length > 0) ? (
           <div className="mt-6 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                进度 {task.completed_count} / {task.total_count}
-              </span>
-              <Badge className="border-primary/50 bg-primary/10 text-primary">
-                <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-primary" />
-                生成中
-              </Badge>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
+            {(generating || isTaskActive) && task.total_count > 0 ? (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    进度 {task.completed_count} / {task.total_count}
+                  </span>
+                  <Badge className="border-primary/50 bg-primary/10 text-primary">
+                    <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-primary" />
+                    生成中
+                  </Badge>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </>
+            ) : null}
+            <GenerationLogPanel
+              templateProgress={task.template_progress}
+              logs={task.logs}
+              active={generating || isTaskActive}
+            />
           </div>
         ) : null}
 
@@ -239,68 +254,84 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
       <GoldPanel className="overflow-hidden">
         <div className="border-b border-primary/10 px-4 py-3">
           <h3 className="font-heading text-base">已生成文件</h3>
+          <p className="mt-1 text-xs text-muted-foreground">按子集小组（模板分类）浏览与下载</p>
         </div>
         {loadingFiles ? (
           <p className="p-6 text-sm text-muted-foreground">加载中…</p>
         ) : files.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">暂无生成文件</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="border-primary/15 hover:bg-transparent">
-                <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
-                  模板
-                </TableHead>
-                <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
-                  文件名
-                </TableHead>
-                <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
-                  生成时间
-                </TableHead>
-                <TableHead className="text-right text-xs tracking-wider text-primary/80 uppercase">
-                  操作
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {files.map((file) => (
-                <TableRow
-                  key={file.id}
-                  className="border-primary/10 transition-colors hover:bg-primary/5"
-                >
-                  <TableCell>{file.template_name ?? "—"}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {extractFilename(file.file_path)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDateTime(file.created_at)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-primary"
-                        onClick={() => setPreviewFile(file)}
+          <div className="divide-y divide-primary/10">
+            {groupedFiles.map((group) => (
+              <div key={group.category}>
+                <div className="flex items-center justify-between border-b border-primary/10 bg-primary/5 px-4 py-3">
+                  <div>
+                    <p className="font-heading text-sm">{group.label}</p>
+                    <p className="text-xs text-muted-foreground">{group.files.length} 个文件</p>
+                  </div>
+                  <Badge variant="outline" className="border-primary/25 text-primary">
+                    子集小组
+                  </Badge>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-primary/15 hover:bg-transparent">
+                      <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
+                        模板
+                      </TableHead>
+                      <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
+                        文件名
+                      </TableHead>
+                      <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
+                        生成时间
+                      </TableHead>
+                      <TableHead className="text-right text-xs tracking-wider text-primary/80 uppercase">
+                        操作
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {group.files.map((file) => (
+                      <TableRow
+                        key={file.id}
+                        className="border-primary/10 transition-colors hover:bg-primary/5"
                       >
-                        <Eye className="size-4" />
-                        预览
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-primary"
-                        onClick={() => void handleDownload(file)}
-                      >
-                        <Download className="size-4" />
-                        下载
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                        <TableCell>{file.template_name ?? "—"}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {extractFilename(file.file_path)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDateTime(file.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-primary"
+                              onClick={() => setPreviewFile(file)}
+                            >
+                              <Eye className="size-4" />
+                              预览
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-primary"
+                              onClick={() => void handleDownload(file)}
+                            >
+                              <Download className="size-4" />
+                              下载
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ))}
+          </div>
         )}
       </GoldPanel>
 

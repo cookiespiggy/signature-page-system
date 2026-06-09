@@ -359,6 +359,7 @@ async def ai_validate_variables(db: Session, project_id: int) -> dict[str, Any]:
 
     ai_used = True
     ai_issues: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = regex_issues
     message: str | None = None
     try:
         filled = [

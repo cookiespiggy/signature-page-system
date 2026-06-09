@@ -1,9 +1,33 @@
 export type GenerationTaskStatus =
   | "pending"
-  | "running"
+  | "processing"
   | "completed"
   | "failed"
   | "cancelled"
+
+export type TemplateProgressStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "skipped"
+
+export type GenerationLogLevel = "info" | "success" | "error" | "warning"
+
+export interface TemplateProgressItem {
+  template_id: number
+  template_name: string
+  template_category: string
+  status: TemplateProgressStatus
+  file_id: number | null
+}
+
+export interface GenerationLogEntry {
+  timestamp: string
+  level: GenerationLogLevel
+  message: string
+  template_name: string | null
+}
 
 export interface GenerationStartResponse {
   task_id: number
@@ -21,6 +45,8 @@ export interface GenerationStatus {
   updated_at: string
   completed_at: string | null
   cancelled_at: string | null
+  template_progress: TemplateProgressItem[]
+  logs: GenerationLogEntry[]
 }
 
 export interface GeneratedFile {
@@ -28,6 +54,7 @@ export interface GeneratedFile {
   project_id: number
   template_id: number
   template_name: string | null
+  template_category: string | null
   file_path: string
   status: string
   created_at: string
