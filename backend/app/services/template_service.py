@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.models import CustomVariable, Project, ProjectTemplate, Template, Variable
 from app.services import ai_service
+from app.services.ai_guardrail import cross_validate_parsed_variables
 from app.services.project_service import get_project
 from app.services.variable_registry import (
     TEMPLATE_VARIABLE_MAP,
@@ -432,6 +433,15 @@ async def parse_template_file(upload: UploadFile) -> dict[str, Any]:
     try:
         result = await ai_service.parse_template_variables(text)
         variables = enrich_parsed_variables(result.get("variables", []))
+        variables = cross_validate_parsed_variables(variables)
+        trust_counts: dict[str, int] = {}
+        for v in variables:
+            tl = v.get("trust_level", "unknown")
+            trust_counts[tl] = trust_counts.get(tl, 0) + 1
+        logger.info(
+            "AI 模板解析完成: %d 变量, 可信分布 %s",
+            len(variables), trust_counts,
+        )
     except ai_service.AIServiceUnavailableError:
         ai_used = False
         variables = []

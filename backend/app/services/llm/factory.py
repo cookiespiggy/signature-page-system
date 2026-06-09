@@ -22,7 +22,7 @@ def get_llm_provider() -> LLMProvider:
 
 def create_llm_provider(provider: str | None = None) -> LLMProvider:
     """根据名称创建 Provider，默认读取 LLM_PROVIDER 环境变量。"""
-    name = (provider or os.getenv("LLM_PROVIDER", "mock")).lower().strip()
+    name = (provider or os.getenv("LLM_PROVIDER", "opencode")).lower().strip()
     if name == "opencode":
         return OpenCodeProvider()
     if name == "openai":

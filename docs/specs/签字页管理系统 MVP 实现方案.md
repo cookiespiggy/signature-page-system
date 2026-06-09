@@ -649,7 +649,90 @@ V2 阶段为签字页领域定义轻量级 Ontology：
 - 前端针对冲突行可局部刷新后重新提交，用户体验更友好
 - MVP 阶段不实现完整的冲突合并，仅防覆盖丢失
 
----
+**策略 11: AI 输出交叉验证 Guardrails（三层防御）**
+
+> 核心原则：AI 的每种输出在进入业务层之前，必须经过**至少一道确定性规则**的交叉验证。
+> AI 不直接产生"数据"，只产生"建议"，建议经交叉验证 + 人类批准后才转化为数据。
+
+**三层防御架构**：
+
+```
+AI 输出 → ① 规则层（确定性）→ ② 交叉验证层 → ③ 人类确认层
+                ↓                      ↓
+          VARIABLE_REGISTRY        Alias 检查
+          VALIDATION_RULES         Key-别名交叉比对
+          Pydantic Schema          正则 vs AI 语义
+                                   ↓
+                             可信评级输出
+                        ┌──────┬──────┬──────┐
+                        │ HIGH │MEDIUM│  LOW │
+                        └──┬───┴──┬───┴──┬───┘
+                           ↓       ↓      ↓
+                      自动写入  标记待确认 强制人工
+                      不阻断            逐条审查
+```
+
+**可信评级规则**：
+
+| 评级 | 含义 | 条件 | 业务动作 |
+|------|------|------|---------|
+| HIGH | 规则确认 + AI 一致 | 变量已注册且 key/category 匹配 / 去重建议与 alias 规则一致 / 校验结果被正则证实 | 自动通过，写入/展示无需额外确认 |
+| MEDIUM | 规则或 AI 单方支持 | 变量未注册但找到 alias 匹配或语义近似的标准 key / 去重建议无规则确认但 confidence >= 0.5 / AI 校验发现正则未覆盖的问题 | 标记「AI 建议」标签，需用户确认后才生效 |
+| LOW | 规则与 AI 矛盾或两者均无依据 | AI 输出的变量在注册表和 alias 中均无匹配 / 去重建议与注册表 alias 关系冲突 / AI 校验与正则结果矛盾 | 强制逐条审核，不确认不入库 |
+
+**AI-1（模板解析）交叉验证规则**：
+
+```
+AI 返回变量列表 → 逐变量检查：
+  1. key 是否在注册表中？ → 是 → HIGH
+  2. 否 → label 是否匹配注册表某条目的 alias？
+     → 是 → MEDIUM，附加 suggested_key 建议使用标准 key
+     → 否 → LOW，标记为「未注册变量，请人工确认」
+  3. category 与注册表不一致？ → 降一级（HIGH→MEDIUM, MEDIUM→LOW）
+```
+
+实现：`ai_guardrail.cross_validate_parsed_variables()`
+生效位置：`template_service.parse_template_file()` 中 AI 解析后的 enrich 步骤
+
+**AI-2（变量去重）交叉验证规则**：
+
+```
+AI 返回合并建议 → 逐条与 get_alias_dedup_suggestions() 的规则建议交叉比对：
+  1. AI 建议的 (keep_key, merge_keys) 是否在 alias 规则中？
+     → 全部匹配 → HIGH，标记「规则与 AI 一致」
+     → 部分匹配 → MEDIUM，仅展示规则匹配部分
+     → 不匹配且与注册表 alias 关系冲突 → LOW，标记「AI 建议可能与注册表冲突」
+  2. 规则建议中 AI 未提及的 → 保留规则建议（规则优先，不作降级）
+```
+
+实现：`ai_guardrail.cross_validate_dedup_suggestions()`
+生效位置：`variable_service.ai_dedup_suggestions()` 中 AI 调用后
+
+**AI-3（数据校验）交叉验证规则**：
+
+```
+AI 返回校验问题 → 与正则校验结果合并：
+  1. 正则与 AI 都标记的变量 → 保留，标记 cross_validated=true
+  2. 正则标记但 AI 未发现 → 保留（确定性规则优先，AI 漏报不降级）
+  3. AI 标记但正则未发现 → 标记 source=ai_only，供参考
+```
+
+实现：`ai_guardrail.cross_validate_issues()`
+生效位置：`variable_service.ai_validate_variables()` 中 AI 调用后
+
+**confidence 阈值的实际使用**：
+
+`DedupSuggestion.confidence` 字段在交叉验证后用于辅助决策：
+- confidence >= 0.8 且 rules_match=true → HIGH
+- confidence >= 0.5 且 rules_match=false → MEDIUM
+- confidence < 0.5 → LOW（即使 rules_match=true 也需确认）
+- confidence 值存储在 AILog.validation_result 中，用于后续分析
+
+**MVP 简化原则**：
+- 不增加数据库字段，trust_level 作为运行时计算值附加在 API 响应中
+- 前端根据 trust_level 控制 UI 展示样式（绿色 HIGH → 自动接受 / 黄色 MEDIUM → 待确认 / 红色 LOW → 强制审核）
+- 交叉验证逻辑集中在 `ai_guardrail.py` 中，不散落在各业务模块
+- V2 可增加 `ai_guardrail_log` 表记录每次交叉验证结果，用于统计和 prompt 优化
 
 ## 技术架构
 

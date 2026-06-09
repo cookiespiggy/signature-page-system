@@ -73,6 +73,9 @@ class ParsedVariable(BaseModel):
     required: bool = False
     is_multiple: bool = False
     is_registered: bool = False
+    trust_level: str | None = None
+    suggested_key: str | None = None
+    warnings: list[str] | None = None
 
 
 class TemplateParseResult(BaseModel):
@@ -179,3 +182,85 @@ class TemplateRefreshResponse(BaseModel):
     added: int
     removed: int
     kept: int
+
+
+# --- 变量 API ---
+
+
+class VariableResponse(BaseModel):
+    key: str
+    label: str
+    value: str = ""
+    category: str
+    data_type: str
+    required: bool
+    is_multiple: bool
+    sort_order: int
+    source_template_ids: list[int] = Field(default_factory=list)
+    is_merged: bool = False
+    merged_from_keys: list[str] | None = None
+    updated_at: datetime
+
+
+class VariableListResponse(BaseModel):
+    variables: list[VariableResponse]
+
+
+class VariableSaveItem(BaseModel):
+    key: str
+    value: str = ""
+    updated_at: datetime | None = None
+
+
+class VariableSaveRequest(BaseModel):
+    variables: list[VariableSaveItem]
+
+
+class DedupSuggestionResponse(BaseModel):
+    keep_key: str
+    merge_keys: list[str]
+    reason: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    source: str | None = None
+    trust_level: str | None = None
+    rules_match: bool | None = None
+    warnings: list[str] | None = None
+
+
+class AiDedupResponse(BaseModel):
+    alias_suggestions: list[DedupSuggestionResponse] = Field(default_factory=list)
+    ai_suggestions: list[DedupSuggestionResponse] = Field(default_factory=list)
+    ai_used: bool
+    message: str | None = None
+
+
+class ApplyDedupRequest(BaseModel):
+    suggestions: list[DedupSuggestionResponse]
+
+
+class ApplyDedupResponse(BaseModel):
+    merged_rows: int
+
+
+class ValidationIssueResponse(BaseModel):
+    level: str
+    variable_key: str
+    message: str
+    suggestion: str | None = None
+    source: str | None = None
+    cross_validated: bool | None = None
+
+
+class AiValidateResponse(BaseModel):
+    regex_issues: list[ValidationIssueResponse] = Field(default_factory=list)
+    ai_issues: list[ValidationIssueResponse] = Field(default_factory=list)
+    issues: list[ValidationIssueResponse] = Field(default_factory=list)
+    ai_used: bool
+    message: str | None = None
+
+
+class ImportConfirmRequest(BaseModel):
+    rows: list[dict[str, Any]] = Field(
+        ...,
+        description="import-preview 返回的 success 行列表",
+    )

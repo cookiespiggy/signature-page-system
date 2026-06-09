@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import SessionLocal
-from app.routers import health, projects, templates
+from app.routers import health, projects, templates, variables
 from app.services import template_service
 
 
@@ -45,3 +45,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(projects.router)
 app.include_router(templates.router)
+app.include_router(variables.router)
