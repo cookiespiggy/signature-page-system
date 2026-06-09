@@ -264,3 +264,40 @@ class ImportConfirmRequest(BaseModel):
         ...,
         description="import-preview 返回的 success 行列表",
     )
+
+
+# --- 文档生成 API ---
+
+
+class GenerationStartResponse(BaseModel):
+    task_id: int
+    status: str
+
+
+class GenerationStatusResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    status: str
+    total_count: int
+    completed_count: int
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+
+
+class GeneratedFileResponse(BaseModel):
+    id: int
+    project_id: int
+    template_id: int
+    template_name: str | None = None
+    file_path: str
+    status: str
+    created_at: datetime
+
+
+class GeneratedFileListResponse(BaseModel):
+    files: list[GeneratedFileResponse]

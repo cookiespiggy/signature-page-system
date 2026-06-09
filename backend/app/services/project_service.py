@@ -63,7 +63,9 @@ def update_project(
 
 
 def _cancel_active_generation_tasks(db: Session, project_id: int) -> None:
-    """取消进行中的生成任务（DB 状态更新，Session 4 将接入线程取消）。"""
+    """取消进行中的生成任务（DB 状态更新 + 线程取消信号）。"""
+    from app.services import generation_service
+
     stmt = select(GenerationTask).where(
         GenerationTask.project_id == project_id,
         GenerationTask.status.in_(ACTIVE_GENERATION_STATUSES),
@@ -71,6 +73,7 @@ def _cancel_active_generation_tasks(db: Session, project_id: int) -> None:
     tasks = list(db.scalars(stmt).all())
     now = datetime.now(UTC).replace(tzinfo=None)
     for task in tasks:
+        generation_service.cancel_generation_task(task.id, set_db=False)
         task.status = "cancelled"
         task.cancelled_at = now
     if tasks:

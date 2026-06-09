@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import SessionLocal
-from app.routers import health, projects, templates, variables
-from app.services import template_service
+from app.routers import generation, health, projects, templates, variables
+from app.services import generation_service, template_service
 
 
 @asynccontextmanager
@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
     yield
-    # Session 4 将在此 shutdown ThreadPoolExecutor
+    generation_service.shutdown_executor()
 
 
 app = FastAPI(
@@ -46,3 +46,4 @@ app.include_router(health.router)
 app.include_router(projects.router)
 app.include_router(templates.router)
 app.include_router(variables.router)
+app.include_router(generation.router)
