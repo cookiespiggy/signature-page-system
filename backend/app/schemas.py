@@ -99,3 +99,83 @@ class ValidationIssue(BaseModel):
 
 class DataValidateResult(BaseModel):
     issues: list[ValidationIssue]
+
+
+# --- 模板 API ---
+
+
+class TemplateVariableDefinition(BaseModel):
+    key: str
+    label: str
+    category: str = "other"
+    data_type: str = "text"
+    required: bool = False
+    is_multiple: bool = False
+
+
+class TemplateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    category: str = Field(default="other", max_length=64)
+    tags: list[str] = Field(default_factory=list)
+    applicable_scenarios: str | None = None
+    variables_json: list[TemplateVariableDefinition] = Field(default_factory=list)
+    register_custom_variables: bool = True
+
+
+class TemplateUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    category: str | None = Field(None, max_length=64)
+    tags: list[str] | None = None
+    applicable_scenarios: str | None = None
+    variables_json: list[TemplateVariableDefinition] | None = None
+    register_custom_variables: bool = True
+
+
+class TemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    category: str
+    tags: list[str] | None
+    applicable_scenarios: str | None
+    variable_count: int
+    is_preset: bool
+    file_path: str | None
+    variables_json: list[dict[str, Any]] | None
+    version: int
+    preview_image: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TemplateParseResponse(BaseModel):
+    variables: list[ParsedVariable]
+    ai_used: bool
+    parse_duration_ms: int
+    message: str | None = None
+
+
+class ProjectTemplateSelect(BaseModel):
+    template_ids: list[int] = Field(..., min_length=1)
+
+
+class ProjectTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    template_id: int
+    template_version: int
+    variables_snapshot_json: list[dict[str, Any]] | None
+    needs_refresh: bool = False
+    latest_template_version: int | None = None
+
+
+class TemplateRefreshResponse(BaseModel):
+    added: int
+    removed: int
+    kept: int

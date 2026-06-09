@@ -7,11 +7,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import health, projects
+from app.database import SessionLocal
+from app.routers import health, projects, templates
+from app.services import template_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    db = SessionLocal()
+    try:
+        template_service.load_runtime_registry(db)
+        template_service.seed_preset_templates(db)
+    finally:
+        db.close()
     yield
     # Session 4 将在此 shutdown ThreadPoolExecutor
 
@@ -36,3 +44,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(projects.router)
+app.include_router(templates.router)
