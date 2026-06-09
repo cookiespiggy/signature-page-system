@@ -16,9 +16,16 @@
 
 Playwright 自动录制的 MVP 全流程（列表 → 新建项目 → 选模板 → 填变量 → AI 去重/校验 → 生成 → ZIP 下载）：
 
+![操作流程演示](docs/assets/demo-walkthrough.gif)
+
+<details>
+<summary>播放 MP4 高清版</summary>
+
 <video src="https://raw.githubusercontent.com/cookiespiggy/signature-page-system/main/docs/assets/demo-walkthrough.mp4" width="960" controls></video>
 
-若内嵌播放器未显示，可 [下载演示视频](https://github.com/cookiespiggy/signature-page-system/releases/download/demo-walkthrough/demo-walkthrough.mp4) 或查看 [Releases · demo-walkthrough](https://github.com/cookiespiggy/signature-page-system/releases/tag/demo-walkthrough)。
+</details>
+
+也可 [下载 MP4](https://github.com/cookiespiggy/signature-page-system/releases/download/demo-walkthrough/demo-walkthrough.mp4)（[Releases · demo-walkthrough](https://github.com/cookiespiggy/signature-page-system/releases/tag/demo-walkthrough)）。
 
 本地复现录屏：`cd e2e-test-results && node demo-walkthrough.mjs`（需前后端已启动）。
 
