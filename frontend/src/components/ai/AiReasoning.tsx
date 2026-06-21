@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react"
 import { useState } from "react"
 
 import { cn } from "@/lib/utils"
@@ -54,9 +54,12 @@ export function EvidenceSection({ evidence }: { evidence: string[] | null | unde
 export function RiskNote({ note }: { note: string | null | undefined }) {
   if (!note) return null
   return (
-    <div className="flex items-start gap-1.5 rounded border border-amber-200/40 bg-amber-50/40 p-2 text-xs text-amber-800 dark:border-amber-800/30 dark:bg-amber-950/20 dark:text-amber-300">
-      <span className="mt-px shrink-0">⚠</span>
-      <span>{note}</span>
+    <div className="flex items-start gap-2 rounded border-l-2 border-destructive/35 bg-destructive/[0.04] p-2.5">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+      <div className="space-y-0.5">
+        <p className="text-xs font-medium text-destructive">风险</p>
+        <p className="text-xs leading-relaxed text-foreground">{note}</p>
+      </div>
     </div>
   )
 }
