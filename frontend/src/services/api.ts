@@ -2,6 +2,7 @@ import type {
   GeneratedFileListResponse,
   GenerationStartResponse,
   GenerationStatus,
+  ProjectFileBatchesResponse,
 } from "@/types/generation"
 import type { HealthResponse, Project } from "@/types/project"
 import type {
@@ -288,6 +289,8 @@ export const generationApi = {
     request<GenerationStatus | null>(`/projects/${projectId}/generate/status`),
   listFiles: (projectId: number) =>
     request<GeneratedFileListResponse>(`/projects/${projectId}/files`),
+  batches: (projectId: number) =>
+    request<ProjectFileBatchesResponse>(`/projects/${projectId}/files/batches`),
   downloadFile: (fileId: number, filename: string) =>
     downloadFile(`/files/${fileId}/download`, filename),
   fetchFileBlob: async (fileId: number): Promise<Blob> => {

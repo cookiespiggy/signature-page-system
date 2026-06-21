@@ -31,7 +31,7 @@ import {
 import { validateVariableValue } from "@/lib/validation"
 import { cn } from "@/lib/utils"
 import { getErrorMessage, variablesApi } from "@/services/api"
-import type { AiDedupResponse, AiValidateResponse, DedupSuggestion } from "@/types/ai"
+import type { AiDedupResponse, AiValidateResponse, DedupSuggestion, ValidationIssue } from "@/types/ai"
 import type { BatchOperationResponse } from "@/types/variable"
 import type { ProjectTemplate, Template } from "@/types/template"
 

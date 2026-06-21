@@ -8,10 +8,10 @@
 from __future__ import annotations
 
 import os
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,11 +22,14 @@ from app.exceptions import (
     ProjectNotFoundError,
     TemplateFileMissingError,
 )
+from app.models import GenerationTask, Project
 from app.schemas import (
     GeneratedFileResponse,
     GeneratedFileListResponse,
+    GenerationBatchSummary,
     GenerationStartResponse,
     GenerationStatusResponse,
+    ProjectFileBatchesResponse,
 )
 from app.services import generation_service
 
@@ -36,7 +39,7 @@ USE_TEMPORAL = os.getenv("USE_TEMPORAL", "false").lower() in {"true", "1", "yes"
 
 
 def _workflow_id(project_id: int) -> str:
-    return f"doc-gen-project-{project_id}-{uuid.uuid4().hex[:8]}"
+    return f"doc-gen-project-{project_id}"
 
 
 @router.post(
@@ -68,27 +71,19 @@ async def _start_generation_temporal(
 ) -> GenerationStartResponse:
     """通过 Temporal Workflow 启动生成。"""
     from app.services.project_service import get_project
-    from app.models import GenerationTask, ProjectTemplate, Template
-    from sqlalchemy import select
+    from app.models import ProjectTemplate, Template
+    from pathlib import Path
+
+    from app.services.render_utils import get_project_templates, resolve_template_path
 
     get_project(db, project_id)
 
-    # 检查模板
-    stmt = (
-        select(Template)
-        .join(ProjectTemplate, ProjectTemplate.template_id == Template.id)
-        .where(ProjectTemplate.project_id == project_id)
-        .order_by(ProjectTemplate.id)
-    )
-    templates = list(db.scalars(stmt).all())
+    templates = get_project_templates(db, project_id)
     if not templates:
         raise NoTemplatesSelectedError("请先为项目选择至少一个模板")
 
-    from pathlib import Path
     for template in templates:
-        path = Path(template.file_path or "")
-        if not path.is_absolute():
-            path = Path.cwd() / path
+        path = resolve_template_path(template.file_path or "")
         if not path.is_file():
             raise TemplateFileMissingError(f"模板「{template.name}」文件缺失，无法生成")
 
@@ -100,12 +95,16 @@ async def _start_generation_temporal(
     if db.scalar(active_stmt):
         raise ActiveTaskExistsError("该项目已有进行中的生成任务")
 
+    # 创建 workflow_id（确保可预测，用 project_id 唯一标识）
+    wf_id = _workflow_id(project_id)
+
     # 创建 DB 任务记录（pending 状态）
     task = GenerationTask(
         project_id=project_id,
         status="pending",
         total_count=len(templates),
         completed_count=0,
+        workflow_id=wf_id,
     )
     db.add(task)
     db.commit()
@@ -123,7 +122,7 @@ async def _start_generation_temporal(
     await client.start_workflow(
         DocumentGenerationWorkflow.run,
         GenerationWorkflowInput(project_id=project_id),
-        id=_workflow_id(project_id),
+        id=wf_id,
         task_queue=DOCUMENT_GENERATION,
     )
     return GenerationStartResponse(task_id=task.id, status=task.status)
@@ -152,11 +151,9 @@ async def cancel_generation(
 async def _cancel_generation_temporal(
     project_id: int, db: Session
 ) -> GenerationStatusResponse:
-    """通过 Temporal Signal 取消生成。"""
+    """通过 Temporal Signal 取消生成（不提前改 DB，让 Workflow Activity 处理状态转换）。"""
     from app.temporal.client import get_client
     from app.temporal.workflows.generation import DocumentGenerationWorkflow
-    from app.models import GenerationTask
-    from sqlalchemy import select
 
     stmt = select(GenerationTask).where(
         GenerationTask.project_id == project_id,
@@ -166,30 +163,20 @@ async def _cancel_generation_temporal(
     if task is None:
         raise NoActiveTaskError("没有进行中的生成任务")
 
-    # 发送 cancel signal 到所有匹配的 workflow
     client = await get_client()
-    async for wf in client.list_workflows(
-        query=f'WorkflowType="DocumentGenerationWorkflow" AND ExecutionStatus="Running"'
-    ):
-        if f"project-{project_id}" in wf.workflow_id:
-            handle = client.get_workflow_handle_for(
-                DocumentGenerationWorkflow, wf.workflow_id
-            )
-            await handle.signal(DocumentGenerationWorkflow.cancel)
 
-    # 同时更新 DB 状态（防止 workflow 还没处理 signal 时用户查询）
-    from datetime import UTC, datetime
-    now = datetime.now(UTC).replace(tzinfo=None)
-    task.status = "cancelled"
-    task.cancelled_at = now
-    db.commit()
+    if task.workflow_id:
+        handle = client.get_workflow_handle_for(
+            DocumentGenerationWorkflow, task.workflow_id
+        )
+        await handle.signal(DocumentGenerationWorkflow.cancel)
+    else:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Temporal 任务缺少 workflow_id，无法取消",
+        )
 
-    from app.models import Project
-    project = db.get(Project, project_id)
-    if project and project.status == "generating":
-        project.status = "draft"
-        db.commit()
-
+    # 返回当前状态（不修改 DB，Workflow Activity 会处理状态转换）
     db.refresh(task)
     payload = generation_service.build_generation_status_response(db, task)
     return GenerationStatusResponse.model_validate(payload)
@@ -209,6 +196,22 @@ async def get_generation_status(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
     if task is None:
         return None
+
+    # Temporal 模式：尝试从 Workflow Query 获取实时进度（比 DB 更新更及时）
+    if USE_TEMPORAL and task.status == "processing" and task.workflow_id:
+        try:
+            from app.temporal.client import get_client
+            from app.temporal.workflows.generation import DocumentGenerationWorkflow
+
+            client = await get_client()
+            handle = client.get_workflow_handle_for(
+                DocumentGenerationWorkflow, task.workflow_id
+            )
+            progress = await handle.query(DocumentGenerationWorkflow.progress)
+            task.completed_count = max(task.completed_count, progress.completed_count)
+        except Exception:
+            pass
+
     payload = generation_service.build_generation_status_response(db, task)
     return GenerationStatusResponse.model_validate(payload)
 
@@ -235,11 +238,26 @@ async def list_generated_files(
                 template_category=f.template.category if f.template else None,
                 file_path=f.file_path,
                 status=f.status,
+                generation_task_id=f.generation_task_id,
                 created_at=f.created_at,
             )
             for f in files
         ]
     )
+
+
+@router.get(
+    "/projects/{project_id}/files/batches",
+    response_model=ProjectFileBatchesResponse,
+)
+async def list_file_batches(
+    project_id: int,
+    db: Session = Depends(get_db),
+) -> ProjectFileBatchesResponse:
+    try:
+        return generation_service.get_file_batches(db, project_id)
+    except ProjectNotFoundError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
 @router.get("/files/{file_id}/download")

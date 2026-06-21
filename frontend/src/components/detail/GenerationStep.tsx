@@ -1,9 +1,14 @@
-import { Download, Eye, FileText, Loader2, Package } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronDown, ChevronRight, Download, Eye, FileText, History, Loader2, Package } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -27,7 +32,7 @@ import { GoldPanel } from "@/components/layout/GoldPanel"
 import { getCategoryLabel } from "@/lib/variable-utils"
 import { formatDateTime } from "@/lib/datetime"
 import { getErrorMessage, generationApi } from "@/services/api"
-import type { GeneratedFile, GenerationStatus } from "@/types/generation"
+import type { GeneratedFile, GenerationBatchSummary, GenerationStatus } from "@/types/generation"
 import type { VariableField } from "@/lib/variable-utils"
 
 interface GenerationStepProps {
@@ -49,20 +54,24 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
   const [generating, setGenerating] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [task, setTask] = useState<GenerationStatus | null>(null)
-  const [files, setFiles] = useState<GeneratedFile[]>([])
-  const [loadingFiles, setLoadingFiles] = useState(true)
+  const [currentFiles, setCurrentFiles] = useState<GeneratedFile[]>([])
+  const [historyBatches, setHistoryBatches] = useState<GenerationBatchSummary[]>([])
+  const [loading, setLoading] = useState(true)
   const [previewFile, setPreviewFile] = useState<GeneratedFile | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const pollDelayRef = useRef(2000)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasHistory = historyBatches.length > 0
 
-  const loadFiles = useCallback(async () => {
+  const loadBatches = useCallback(async () => {
     try {
-      const result = await generationApi.listFiles(projectId)
-      setFiles(result.files)
+      const result = await generationApi.batches(projectId)
+      setCurrentFiles(result.current)
+      setHistoryBatches(result.history)
     } catch (error) {
       toast.error(getErrorMessage(error))
     } finally {
-      setLoadingFiles(false)
+      setLoading(false)
     }
   }, [projectId])
 
@@ -81,7 +90,7 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
         setGenerating(false)
         pollDelayRef.current = 2000
         stopPolling()
-        await loadFiles()
+        await loadBatches()
         if (status.status === "completed") {
           toast.success("文档生成完成")
         } else if (status.status === "failed") {
@@ -98,10 +107,10 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
       stopPolling()
       toast.error(getErrorMessage(error))
     }
-  }, [projectId, loadFiles, stopPolling])
+  }, [projectId, loadBatches, stopPolling])
 
   useEffect(() => {
-    void loadFiles()
+    void loadBatches()
     void generationApi.status(projectId).then((status) => {
       if (status && !TERMINAL_STATUSES.has(status.status)) {
         setTask(status)
@@ -113,7 +122,7 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
       }
     })
     return stopPolling
-  }, [projectId, loadFiles, pollStatus, stopPolling])
+  }, [projectId, loadBatches, pollStatus, stopPolling])
 
   const handleStartGenerate = async () => {
     setConfirmOpen(false)
@@ -166,7 +175,7 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
       : 0
 
   const isTaskActive = Boolean(task && ACTIVE_STATUSES.has(task.status))
-  const groupedFiles = useMemo(() => groupFilesByCategory(files), [files])
+  const hasGeneratedBefore = currentFiles.length > 0 || hasHistory
 
   const groupedConfirm = fields.reduce<Map<string, VariableField[]>>((acc, field) => {
     const list = acc.get(field.category) ?? []
@@ -174,6 +183,76 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
     acc.set(field.category, list)
     return acc
   }, new Map())
+
+  function renderFileTable(files: GeneratedFile[]) {
+    const grouped = groupFilesByCategory(files)
+    if (grouped.length === 0) return null
+    return (
+      <div className="divide-y divide-primary/10">
+        {grouped.map((group) => (
+          <div key={group.category}>
+            <div className="flex items-center justify-between border-b border-primary/10 bg-primary/5 px-4 py-3">
+              <div>
+                <p className="font-heading text-sm">{group.label}</p>
+                <p className="text-xs text-muted-foreground">{group.files.length} 个文件</p>
+              </div>
+              <Badge variant="outline" className="border-primary/25 text-primary">
+                子集小组
+              </Badge>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow className="border-primary/15 hover:bg-transparent">
+                  <TableHead className="text-xs tracking-wider text-primary/80 uppercase">模板</TableHead>
+                  <TableHead className="text-xs tracking-wider text-primary/80 uppercase">文件名</TableHead>
+                  <TableHead className="text-xs tracking-wider text-primary/80 uppercase">生成时间</TableHead>
+                  <TableHead className="text-right text-xs tracking-wider text-primary/80 uppercase">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {group.files.map((file) => (
+                  <TableRow
+                    key={file.id}
+                    className="border-primary/10 transition-colors hover:bg-primary/5"
+                  >
+                    <TableCell>{file.template_name ?? "—"}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {extractFilename(file.file_path)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDateTime(file.created_at)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-primary"
+                          onClick={() => setPreviewFile(file)}
+                        >
+                          <Eye className="size-4" />
+                          预览
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-primary"
+                          onClick={() => void handleDownload(file)}
+                        >
+                          <Download className="size-4" />
+                          下载
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -201,10 +280,11 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
                 className="border border-primary/30 bg-primary text-primary-foreground hover:bg-primary/90"
                 onClick={() => setConfirmOpen(true)}
               >
-                生成签字页
+                <FileText className="size-4" />
+                {hasGeneratedBefore ? "重新生成" : "生成签字页"}
               </Button>
             )}
-            {files.length > 0 ? (
+            {currentFiles.length > 0 ? (
               <Button
                 variant="outline"
                 className="border-primary/25"
@@ -251,89 +331,80 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
         ) : null}
       </GoldPanel>
 
-      <GoldPanel className="overflow-hidden">
-        <div className="border-b border-primary/10 px-4 py-3">
-          <h3 className="font-heading text-base">已生成文件</h3>
-          <p className="mt-1 text-xs text-muted-foreground">按子集小组（模板分类）浏览与下载</p>
-        </div>
-        {loadingFiles ? (
-          <p className="p-6 text-sm text-muted-foreground">加载中…</p>
-        ) : files.length === 0 ? (
-          <p className="p-6 text-sm text-muted-foreground">暂无生成文件</p>
-        ) : (
-          <div className="divide-y divide-primary/10">
-            {groupedFiles.map((group) => (
-              <div key={group.category}>
-                <div className="flex items-center justify-between border-b border-primary/10 bg-primary/5 px-4 py-3">
-                  <div>
-                    <p className="font-heading text-sm">{group.label}</p>
-                    <p className="text-xs text-muted-foreground">{group.files.length} 个文件</p>
+      {loading ? (
+        <GoldPanel className="p-6">
+          <p className="text-sm text-muted-foreground">加载文件列表…</p>
+        </GoldPanel>
+      ) : currentFiles.length === 0 && !hasHistory ? (
+        <GoldPanel className="p-6">
+          <p className="text-sm text-muted-foreground">暂无生成文件</p>
+        </GoldPanel>
+      ) : (
+        <>
+          <GoldPanel className="overflow-hidden">
+            <div className="border-b border-primary/10 px-4 py-3">
+              <h3 className="font-heading text-base">
+                当前批次
+                {hasHistory && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    最新生成
+                  </span>
+                )}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                按模板分类浏览与下载
+              </p>
+            </div>
+            {renderFileTable(currentFiles)}
+          </GoldPanel>
+
+          {hasHistory ? (
+            <GoldPanel className="overflow-hidden">
+              <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+                <CollapsibleTrigger className="flex w-full items-center justify-between border-b border-primary/10 px-4 py-3 hover:bg-primary/5">
+                  <div className="flex items-center gap-2">
+                    <History className="size-4 text-muted-foreground" />
+                    <span className="font-heading text-base">历史版本</span>
+                    <Badge variant="outline" className="border-primary/25 text-xs">
+                      {historyBatches.length} 个版本
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="border-primary/25 text-primary">
-                    子集小组
-                  </Badge>
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-primary/15 hover:bg-transparent">
-                      <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
-                        模板
-                      </TableHead>
-                      <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
-                        文件名
-                      </TableHead>
-                      <TableHead className="text-xs tracking-wider text-primary/80 uppercase">
-                        生成时间
-                      </TableHead>
-                      <TableHead className="text-right text-xs tracking-wider text-primary/80 uppercase">
-                        操作
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {group.files.map((file) => (
-                      <TableRow
-                        key={file.id}
-                        className="border-primary/10 transition-colors hover:bg-primary/5"
+                  {historyOpen ? (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="size-4 text-muted-foreground" />
+                  )}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="divide-y divide-primary/10">
+                    {historyBatches.map((batch) => (
+                      <div
+                        key={batch.generation_task_id}
+                        className="flex items-center justify-between px-4 py-3 hover:bg-primary/5"
                       >
-                        <TableCell>{file.template_name ?? "—"}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {extractFilename(file.file_path)}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDateTime(file.created_at)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-primary"
-                              onClick={() => setPreviewFile(file)}
-                            >
-                              <Eye className="size-4" />
-                              预览
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-primary"
-                              onClick={() => void handleDownload(file)}
-                            >
-                              <Download className="size-4" />
-                              下载
-                            </Button>
+                        <div className="flex items-center gap-3">
+                          <div className="size-2 rounded-full bg-muted-foreground/30" />
+                          <div>
+                            <p className="text-sm">
+                              {formatDateTime(batch.created_at)}
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {batch.status === "completed" ? "已完成" : batch.status}
+                              </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {batch.file_count} 个文件
+                            </p>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ))}
-          </div>
-        )}
-      </GoldPanel>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </GoldPanel>
+          ) : null}
+        </>
+      )}
 
       <DocxPreviewDialog
         open={previewFile !== null}
@@ -347,9 +418,11 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>确认生成变量</DialogTitle>
+            <DialogTitle>{hasGeneratedBefore ? "重新生成签字页" : "确认生成变量"}</DialogTitle>
             <DialogDescription>
-              请审阅以下变量值，确认无误后开始生成 Word 文档。
+              {hasGeneratedBefore
+                ? "本次将覆盖旧文件为新批次，历史版本可在「历史版本」中查看。"
+                : "请审阅以下变量值，确认无误后开始生成 Word 文档。"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -384,7 +457,7 @@ export function GenerationStep({ projectId, fields, projectStatus }: GenerationS
             </Button>
             <Button onClick={() => void handleStartGenerate()}>
               <FileText className="size-4" />
-              确认生成
+              {hasGeneratedBefore ? "确认重新生成" : "确认生成"}
             </Button>
           </DialogFooter>
         </DialogContent>

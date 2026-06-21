@@ -60,8 +60,12 @@ def update_project(
 
 
 def _cancel_active_generation_tasks(db: Session, project_id: int) -> None:
-    """取消进行中的生成任务（DB 状态更新 + 线程取消信号）。"""
+    """取消进行中的生成任务（DB 状态更新 + 线程/Temporal 取消信号）。"""
+    import os
+
     from app.services import generation_service
+
+    USE_TEMPORAL = os.getenv("USE_TEMPORAL", "false").lower() in {"true", "1", "yes"}
 
     stmt = select(GenerationTask).where(
         GenerationTask.project_id == project_id,
@@ -70,7 +74,10 @@ def _cancel_active_generation_tasks(db: Session, project_id: int) -> None:
     tasks = list(db.scalars(stmt).all())
     now = datetime.now(UTC).replace(tzinfo=None)
     for task in tasks:
-        generation_service.cancel_generation_task(task.id, set_db=False)
+        if USE_TEMPORAL and task.workflow_id:
+            generation_service.cancel_temporal_workflow_sync(task)
+        else:
+            generation_service.cancel_generation_task(task.id, set_db=False)
         task.status = "cancelled"
         task.cancelled_at = now
     if tasks:

@@ -66,6 +66,7 @@ class DocumentGenerationWorkflow:
         self._total_count = 0
         self._status = "pending"
         self._files: list[str] = []
+        self._failed_templates: list[str] = []
 
     @workflow.run
     async def run(self, input: GenerationWorkflowInput) -> GenerationResult:
@@ -85,6 +86,7 @@ class DocumentGenerationWorkflow:
             self._total_count = init_result.total_count
             self._status = "processing"
             template_ids = init_result.template_ids
+            template_names = init_result.template_names
             context = init_result.context
 
             # 2. 逐模板渲染
@@ -105,10 +107,11 @@ class DocumentGenerationWorkflow:
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
                 except Exception as exc:
+                    name = template_names[index] if index < len(template_names) else f"模板#{template_id}"
+                    self._failed_templates.append(name)
                     workflow.logger.error(
-                        "模板 %d 渲染失败: %s", template_id, exc
+                        "模板「%s」渲染失败: %s", name, exc
                     )
-                    # 渲染失败不重试，直接记录并继续
                     continue
 
                 if result:
@@ -123,7 +126,14 @@ class DocumentGenerationWorkflow:
                         start_to_close_timeout=timedelta(seconds=10),
                     )
 
-            # 3. 完成 / 取消
+            # 3. 构建失败信息
+            partial_fail_msg = None
+            if self._failed_templates:
+                partial_fail_msg = (
+                    f"以下模板生成失败: {', '.join(self._failed_templates)}"
+                    f"（{self._completed_count}/{self._total_count} 个成功）"
+                )
+
             if self._cancelled:
                 await workflow.execute_activity(
                     cancel_generation_in_db,
@@ -141,7 +151,7 @@ class DocumentGenerationWorkflow:
             else:
                 await workflow.execute_activity(
                     finalize_generation,
-                    args=[project_id, self._completed_count],
+                    args=[project_id, self._completed_count, partial_fail_msg],
                     task_queue=DOCUMENT_GENERATION,
                     start_to_close_timeout=timedelta(seconds=10),
                 )

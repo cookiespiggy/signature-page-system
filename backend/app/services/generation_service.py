@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
-import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -14,7 +12,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from docxtpl import DocxTemplate
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -26,8 +23,18 @@ from app.exceptions import (
     NoTemplatesSelectedError,
     TemplateFileMissingError,
 )
-from app.models import GeneratedFile, GenerationTask, Project, ProjectTemplate, Template, Variable
+from app.models import GeneratedFile, GenerationTask, Project, Template, Variable
 from app.services.project_service import GENERATED_DIR, get_project
+from app.services.render_utils import (
+    add_audit_log,
+    build_render_context,
+    get_latest_task,
+    get_project_templates,
+    project_output_dir,
+    render_one_template,
+    resolve_template_path,
+    safe_template_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +42,6 @@ _executor = ThreadPoolExecutor(max_workers=2)
 _cancel_events: dict[int, threading.Event] = {}
 
 ACTIVE_STATUSES = {"pending", "processing"}
-_BASE_KEY_PATTERN = re.compile(r"^(.+)_(\d+)$")
-_UNSAFE_FILENAME = re.compile(r"[^\w\-_.一-龥]+")
 
 
 class GenerationStateMachine:
@@ -123,144 +128,18 @@ def shutdown_executor() -> None:
     _executor.shutdown(wait=False)
 
 
-def _project_output_dir(project_id: int) -> Path:
-    path = Path(GENERATED_DIR) / str(project_id)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _safe_template_name(name: str) -> str:
-    cleaned = _UNSAFE_FILENAME.sub("_", name.strip())
-    return cleaned or "template"
-
-
-def _resolve_template_path(file_path: str) -> Path:
-    path = Path(file_path)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    return path
-
-
-def _is_multiple_base(base_key: str) -> bool:
-    from app.services.variable_registry import VARIABLE_REGISTRY
-
-    defn = VARIABLE_REGISTRY.get(base_key)
-    return bool(defn and defn.get("is_multiple"))
-
-
-def _build_render_context(variables: list[Variable]) -> dict[str, Any]:
-    """组装 docxtpl 渲染上下文，含 multiple 列表与 alias_map。"""
-    context: dict[str, Any] = {}
-    multiple_groups: dict[str, list[tuple[int, str]]] = {}
-
-    for var in variables:
-        value = (var.value or "").strip()
-        context[var.key] = value
-
-        match = _BASE_KEY_PATTERN.match(var.key)
-        if match:
-            base_key, index = match.group(1), int(match.group(2))
-            if var.is_multiple or _is_multiple_base(base_key):
-                multiple_groups.setdefault(base_key, []).append((index, value))
-        elif var.is_multiple:
-            multiple_groups.setdefault(var.key, []).append((1, value))
-
-    for base_key, items in multiple_groups.items():
-        items.sort(key=lambda item: item[0])
-        values = [val for _, val in items if val]
-        plural_key = f"{base_key}s"
-        context[plural_key] = values
-        for index, val in items:
-            context[f"{base_key}_{index}"] = val
-        if values and not context.get(base_key):
-            context[base_key] = values[0]
-
-    for var in variables:
-        if not var.merged_from_keys:
-            continue
-        keep_value = var.value or ""
-        for alias_key in var.merged_from_keys:
-            context[alias_key] = keep_value
-
-    return context
-
-
-def _get_project_templates(db: Session, project_id: int) -> list[Template]:
-    stmt = (
-        select(Template)
-        .join(ProjectTemplate, ProjectTemplate.template_id == Template.id)
-        .where(ProjectTemplate.project_id == project_id)
-        .order_by(ProjectTemplate.id)
-    )
-    return list(db.scalars(stmt).all())
-
-
-def _get_latest_task(db: Session, project_id: int) -> GenerationTask | None:
-    stmt = (
-        select(GenerationTask)
-        .where(GenerationTask.project_id == project_id)
-        .order_by(GenerationTask.created_at.desc())
-        .limit(1)
-    )
-    return db.scalar(stmt)
-
-
-def _render_one_template(
-    db: Session,
-    *,
-    project_id: int,
-    template: Template,
-    cancel_event: threading.Event,
-    context: dict[str, Any],
-    output_dir: Path,
-) -> GeneratedFile | None:
-    """渲染单个模板，分步检查取消信号。"""
-    if cancel_event.is_set():
-        return None
-
-    template_path = _resolve_template_path(template.file_path or "")
-    if not template_path.is_file():
-        raise FileNotFoundError(f"模板文件不存在: {template_path}")
-
-    doc = DocxTemplate(str(template_path))
-
-    if cancel_event.is_set():
-        return None
-
-    doc.render(context)
-
-    if cancel_event.is_set():
-        return None
-
-    tmp_path = output_dir / f".tmp_{template.id}_{uuid.uuid4().hex}.docx"
-    doc.save(str(tmp_path))
-
-    if cancel_event.is_set():
-        tmp_path.unlink(missing_ok=True)
-        return None
-
-    final_name = f"{_safe_template_name(template.name)}_{uuid.uuid4().hex[:8]}.docx"
-    final_path = output_dir / final_name
-    tmp_path.rename(final_path)
-
-    generated = GeneratedFile(
-        project_id=project_id,
-        template_id=template.id,
-        file_path=str(final_path),
-        status="completed",
-    )
-    db.add(generated)
-    db.commit()
-    db.refresh(generated)
-    return generated
-
-
 def _mark_task_cancelled(
-    sm: GenerationStateMachine, completed_count: int
+    sm: GenerationStateMachine, project_id: int, completed_count: int
 ) -> None:
-    """通过状态机取消任务。"""
+    """通过状态机取消任务，并记录审计日志。"""
     sm._task.completed_count = completed_count
     sm.transition_to("cancelled")
+    add_audit_log(
+        sm._db, project_id=project_id, action="cancelled",
+        message=f"生成任务已取消，已完成 {completed_count}/{sm._task.total_count} 个文件",
+        generation_task_id=sm._task.id,
+        details={"completed_count": completed_count, "total_count": sm._task.total_count},
+    )
 
 
 def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event) -> None:
@@ -275,20 +154,28 @@ def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event
         sm = GenerationStateMachine(task, project, db)
         sm.transition_to("processing")
 
-        templates = _get_project_templates(db, project_id)
+        templates = get_project_templates(db, project_id)
         variables = list(
             db.scalars(select(Variable).where(Variable.project_id == project_id)).all()
         )
-        context = _build_render_context(variables)
-        output_dir = _project_output_dir(project_id)
+        context = build_render_context(variables)
+        output_dir = project_output_dir(project_id)
 
         for index, template in enumerate(templates):
             if cancel_event.is_set() or _is_task_cancelled_in_db(db, task_id):
-                _mark_task_cancelled(sm, completed_count)
+                _mark_task_cancelled(sm, project_id, completed_count)
                 return
 
-            generated = _render_one_template(
+            add_audit_log(
+                db, project_id=project_id, action="template_started",
+                message=f"模板「{template.name}」开始生成（模板版本 v{template.version}）",
+                generation_task_id=task_id,
+                details={"template_id": template.id, "template_name": template.name, "template_version": template.version},
+            )
+
+            generated = _render_one_template_with_cancel(
                 db,
+                task_id=task_id,
                 project_id=project_id,
                 template=template,
                 cancel_event=cancel_event,
@@ -300,18 +187,36 @@ def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event
                 db.refresh(task)
                 if generated is not None:
                     completed_count = index + 1
-                _mark_task_cancelled(sm, completed_count)
+                _mark_task_cancelled(sm, project_id, completed_count)
                 return
 
             if generated is None:
-                _mark_task_cancelled(sm, completed_count)
+                _mark_task_cancelled(sm, project_id, completed_count)
                 return
 
             completed_count = index + 1
             sm.update_progress(completed_count)
 
+            filename = generated.file_path.split("/")[-1] if "/" in generated.file_path else generated.file_path
+            add_audit_log(
+                db, project_id=project_id, action="template_completed",
+                message=f"模板「{template.name}」生成完成（模板版本 v{template.version}） → {filename}",
+                generation_task_id=task_id,
+                details={
+                    "template_id": template.id, "template_name": template.name,
+                    "template_version": template.version, "file_id": generated.id,
+                    "filename": filename,
+                },
+            )
+
         sm._task.completed_count = completed_count
         sm.transition_to("completed")
+        add_audit_log(
+            db, project_id=project_id, action="completed",
+            message=f"全部 {completed_count}/{completed_count} 个文件生成完成",
+            generation_task_id=task_id,
+            details={"completed_count": completed_count},
+        )
     except Exception as exc:
         logger.exception("生成任务 %s 失败", task_id)
         db.rollback()
@@ -320,9 +225,48 @@ def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event
         if task and task.status not in {"cancelled", "completed"}:
             sm = GenerationStateMachine(task, project, db)
             sm.mark_failed(str(exc), completed_count)
+            add_audit_log(
+                db, project_id=project_id, action="failed",
+                message=f"生成失败: {exc}",
+                generation_task_id=task_id,
+                details={"error": str(exc), "completed_count": completed_count},
+            )
     finally:
         _cancel_events.pop(task_id, None)
         db.close()
+
+
+def _render_one_template_with_cancel(
+    db: Session,
+    *,
+    task_id: int | None,
+    project_id: int,
+    template: Template,
+    cancel_event: threading.Event,
+    context: dict[str, Any],
+    output_dir: Path,
+) -> GeneratedFile | None:
+    """渲染单个模板（带取消信号检查）。"""
+    from app.services.render_utils import render_one_template as _render
+
+    if cancel_event.is_set():
+        return None
+    template_path = resolve_template_path(template.file_path or "")
+    if not template_path.is_file():
+        raise FileNotFoundError(f"模板文件不存在: {template_path}")
+    if cancel_event.is_set():
+        return None
+
+    generated = _render(
+        db, project_id=project_id, template=template, context=context, output_dir=output_dir,
+        generation_task_id=task_id,
+    )
+    if cancel_event.is_set() and generated:
+        db.delete(generated)
+        Path(generated.file_path).unlink(missing_ok=True)
+        db.commit()
+        return None
+    return generated
 
 
 def _is_task_cancelled_in_db(db: Session, task_id: int) -> bool:
@@ -333,14 +277,14 @@ def _is_task_cancelled_in_db(db: Session, task_id: int) -> bool:
 def start_generation(db: Session, project_id: int) -> GenerationTask:
     """创建生成任务并提交到线程池。"""
     get_project(db, project_id)
-    templates = _get_project_templates(db, project_id)
+    templates = get_project_templates(db, project_id)
     if not templates:
         raise NoTemplatesSelectedError(
             "请先为项目选择至少一个模板"
         )
 
     for template in templates:
-        path = _resolve_template_path(template.file_path or "")
+        path = resolve_template_path(template.file_path or "")
         if not path.is_file():
             raise TemplateFileMissingError(
                 f"模板「{template.name}」文件缺失，无法生成"
@@ -365,6 +309,12 @@ def start_generation(db: Session, project_id: int) -> GenerationTask:
 
     cancel_event = threading.Event()
     _cancel_events[task.id] = cancel_event
+    add_audit_log(
+        db, project_id=project_id, action="started",
+        message=f"生成任务已创建，共 {len(templates)} 个模板待处理",
+        generation_task_id=task.id,
+        details={"template_count": len(templates), "templates": [{"id": t.id, "name": t.name, "version": t.version} for t in templates]},
+    )
     _executor.submit(_run_generation, task.id, project_id, cancel_event)
     return task
 
@@ -395,6 +345,12 @@ def cancel_generation(db: Session, project_id: int) -> GenerationTask:
         db.commit()
 
     db.refresh(task)
+    add_audit_log(
+        db, project_id=project_id, action="cancelled",
+        message=f"生成任务已取消，已完成 {task.completed_count}/{task.total_count} 个文件",
+        generation_task_id=task.id,
+        details={"completed_count": task.completed_count, "total_count": task.total_count},
+    )
     return task
 
 
@@ -419,9 +375,36 @@ def cancel_generation_task(task_id: int, *, set_db: bool = True) -> None:
         db.close()
 
 
+def cancel_temporal_workflow_sync(task: GenerationTask) -> None:
+    """同步取消 Temporal Workflow（供项目删除等同步路径调用）。"""
+    if not task.workflow_id:
+        return
+
+    import asyncio
+
+    async def _cancel():
+        from app.temporal.client import get_client
+        from app.temporal.workflows.generation import DocumentGenerationWorkflow
+
+        try:
+            client = await get_client()
+            handle = client.get_workflow_handle_for(
+                DocumentGenerationWorkflow, task.workflow_id
+            )
+            await handle.signal(DocumentGenerationWorkflow.cancel)
+        except Exception:
+            logger.exception("取消 Temporal Workflow %s 失败", task.workflow_id)
+
+    try:
+        asyncio.run(_cancel())
+    except RuntimeError:
+        # 如果已有事件循环（如 FastAPI 异步上下文），用 run_coroutine_threadsafe
+        logger.warning("无法在同步上下文中取消 Temporal Workflow %s", task.workflow_id)
+
+
 def get_generation_status(db: Session, project_id: int) -> GenerationTask | None:
     get_project(db, project_id)
-    return _get_latest_task(db, project_id)
+    return get_latest_task(db, project_id)
 
 
 def _task_files_by_template(
@@ -487,11 +470,42 @@ def _build_template_progress(
 
 
 def _build_generation_logs(
+    db: Session,
     task: GenerationTask,
     templates: list[Template],
     task_files: dict[int, GeneratedFile],
     progress: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """构建生成日志时间线 — 优先从审计日志表读取，回退到传统逻辑。"""
+    from app.models import GenerationAuditLog
+
+    audit_logs = list(
+        db.scalars(
+            select(GenerationAuditLog)
+            .where(GenerationAuditLog.generation_task_id == task.id)
+            .order_by(GenerationAuditLog.created_at.asc())
+        ).all()
+    )
+    if audit_logs:
+        _LEVEL_MAP = {
+            "started": "info",
+            "template_started": "info",
+            "template_completed": "success",
+            "completed": "success",
+            "failed": "error",
+            "cancelled": "warning",
+        }
+        return [
+            {
+                "timestamp": log.created_at,
+                "level": _LEVEL_MAP.get(log.action, "info"),
+                "message": log.message,
+                "template_name": (log.details or {}).get("template_name"),
+            }
+            for log in audit_logs
+        ]
+
+    # 回退：无审计日志时使用传统逻辑（兼容旧数据）
     logs: list[dict[str, Any]] = [
         {
             "timestamp": task.created_at,
@@ -515,11 +529,12 @@ def _build_generation_logs(
         file_record = task_files.get(template.id)
         if file_record is None:
             continue
+        filename = file_record.file_path.split("/")[-1] if "/" in file_record.file_path else file_record.file_path
         logs.append(
             {
                 "timestamp": file_record.created_at,
                 "level": "success",
-                "message": f"「{template.name}」生成完成",
+                "message": f"模板「{template.name}」生成完成 → {filename}",
                 "template_name": template.name,
             }
         )
@@ -581,10 +596,10 @@ def _build_generation_logs(
 
 def build_generation_status_response(db: Session, task: GenerationTask) -> dict[str, Any]:
     """组装带模板进度与日志的生成状态响应。"""
-    templates = _get_project_templates(db, task.project_id)
+    templates = get_project_templates(db, task.project_id)
     task_files = _task_files_by_template(db, task)
     progress = _build_template_progress(templates, task, task_files)
-    logs = _build_generation_logs(task, templates, task_files, progress)
+    logs = _build_generation_logs(db, task, templates, task_files, progress)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -605,7 +620,7 @@ def list_generated_files(db: Session, project_id: int) -> list[GeneratedFile]:
     get_project(db, project_id)
     stmt = (
         select(GeneratedFile)
-        .options(joinedload(GeneratedFile.template))
+        .options(joinedload(GeneratedFile.template), joinedload(GeneratedFile.generation_task))
         .where(
             GeneratedFile.project_id == project_id,
             GeneratedFile.status == "completed",
@@ -613,6 +628,65 @@ def list_generated_files(db: Session, project_id: int) -> list[GeneratedFile]:
         .order_by(GeneratedFile.created_at.desc())
     )
     return list(db.scalars(stmt).unique().all())
+
+
+def get_file_batches(db: Session, project_id: int) -> dict[str, Any]:
+    """返回按批次分组的文件列表。"""
+    from app.models import GenerationTask
+    from app.schemas import GeneratedFileResponse, GenerationBatchSummary
+
+    project = get_project(db, project_id)
+
+    # 所有生成任务（从新到旧）
+    tasks = list(
+        db.scalars(
+            select(GenerationTask)
+            .where(GenerationTask.project_id == project_id)
+            .order_by(GenerationTask.created_at.desc())
+        ).all()
+    )
+
+    # 所有已完成文件，按 generation_task_id 索引
+    all_files = list_generated_files(db, project_id)
+    by_task: dict[int | None, list[GeneratedFile]] = {}
+    for f in all_files:
+        by_task.setdefault(f.generation_task_id, []).append(f)
+
+    # 最新批次
+    current_task = tasks[0] if tasks else None
+    current_files = by_task.get(current_task.id, []) if current_task else []
+
+    # 历史批次摘要
+    history: list[dict] = []
+    for task in tasks[1:]:
+        task_files = by_task.get(task.id, [])
+        history.append(GenerationBatchSummary(
+            generation_task_id=task.id,
+            created_at=task.created_at,
+            status=task.status,
+            file_count=len(task_files),
+            completed_count=task.completed_count,
+            total_count=task.total_count,
+        ))
+
+    def _to_response(f: GeneratedFile) -> GeneratedFileResponse:
+        return GeneratedFileResponse(
+            id=f.id,
+            project_id=f.project_id,
+            template_id=f.template_id,
+            template_name=f.template.name if f.template else None,
+            template_category=f.template.category if f.template else None,
+            file_path=f.file_path,
+            status=f.status,
+            generation_task_id=f.generation_task_id,
+            created_at=f.created_at,
+        )
+
+    return {
+        "current": [_to_response(f) for f in current_files],
+        "history": history,
+        "all_files": [_to_response(f) for f in all_files],
+    }
 
 
 def get_generated_file(db: Session, file_id: int) -> GeneratedFile:

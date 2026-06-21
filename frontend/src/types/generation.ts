@@ -57,9 +57,25 @@ export interface GeneratedFile {
   template_category: string | null
   file_path: string
   status: string
+  generation_task_id: number | null
   created_at: string
 }
 
 export interface GeneratedFileListResponse {
   files: GeneratedFile[]
+}
+
+export interface GenerationBatchSummary {
+  generation_task_id: number
+  created_at: string
+  status: string
+  file_count: number
+  completed_count: number
+  total_count: number
+}
+
+export interface ProjectFileBatchesResponse {
+  current: GeneratedFile[]
+  history: GenerationBatchSummary[]
+  all_files: GeneratedFile[]
 }

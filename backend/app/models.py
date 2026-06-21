@@ -41,6 +41,9 @@ class Project(Base):
     ai_logs: Mapped[list["AILog"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    generation_audit_logs: Mapped[list["GenerationAuditLog"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Template(Base):
@@ -144,6 +147,9 @@ class GenerationTask(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="pending", server_default="pending"
     )
+    workflow_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, index=True
+    )
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -157,6 +163,9 @@ class GenerationTask(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="generation_tasks")
+    generated_files: Mapped[list["GeneratedFile"]] = relationship(
+        back_populates="generation_task"
+    )
 
 
 class GeneratedFile(Base):
@@ -169,16 +178,21 @@ class GeneratedFile(Base):
     template_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("templates.id", ondelete="CASCADE"), nullable=False
     )
+    generation_task_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("generation_tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="completed", server_default="completed"
     )
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
 
     project: Mapped["Project"] = relationship(back_populates="generated_files")
     template: Mapped["Template"] = relationship(back_populates="generated_files")
+    generation_task: Mapped["GenerationTask | None"] = relationship(back_populates="generated_files")
 
 
 class AILog(Base):
@@ -199,3 +213,25 @@ class AILog(Base):
     )
 
     project: Mapped["Project | None"] = relationship(back_populates="ai_logs")
+
+
+class GenerationAuditLog(Base):
+    """生成任务审计日志 — 持久化记录生成生命周期事件。"""
+
+    __tablename__ = "generation_audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    generation_task_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("generation_tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(String(512), nullable=False)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+
+    project: Mapped["Project"] = relationship(back_populates="generation_audit_logs")

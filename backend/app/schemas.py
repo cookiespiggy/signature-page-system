@@ -327,8 +327,24 @@ class GeneratedFileResponse(BaseModel):
     template_category: str | None = None
     file_path: str
     status: str
+    generation_task_id: int | None = None
     created_at: datetime
 
 
 class GeneratedFileListResponse(BaseModel):
     files: list[GeneratedFileResponse]
+
+
+class GenerationBatchSummary(BaseModel):
+    generation_task_id: int
+    created_at: datetime
+    status: str
+    file_count: int
+    completed_count: int
+    total_count: int
+
+
+class ProjectFileBatchesResponse(BaseModel):
+    current: list[GeneratedFileResponse]
+    history: list[GenerationBatchSummary]
+    all_files: list[GeneratedFileResponse]
