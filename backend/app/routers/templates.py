@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.exceptions import (
+    PresetTemplateDeleteForbidden,
+    ProjectTemplateNotLinkedError,
+    TemplateNotFoundError,
+    TemplateReferencedError,
+)
 from app.schemas import (
     ProjectTemplateResponse,
     ProjectTemplateSelect,
@@ -50,7 +56,10 @@ async def get_template(
     template_id: int,
     db: Session = Depends(get_db),
 ) -> TemplateResponse:
-    return _to_template_response(template_service.get_template(db, template_id))
+    try:
+        return _to_template_response(template_service.get_template(db, template_id))
+    except TemplateNotFoundError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
 @router.post("/templates/parse", response_model=TemplateParseResponse)
@@ -143,7 +152,14 @@ async def delete_template(
     template_id: int,
     db: Session = Depends(get_db),
 ) -> None:
-    template_service.delete_template(db, template_id)
+    try:
+        template_service.delete_template(db, template_id)
+    except TemplateNotFoundError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+    except PresetTemplateDeleteForbidden as e:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(e))
+    except TemplateReferencedError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
 @router.get(
@@ -178,7 +194,10 @@ async def remove_project_template(
     template_id: int,
     db: Session = Depends(get_db),
 ) -> None:
-    template_service.remove_template_from_project(db, project_id, template_id)
+    try:
+        template_service.remove_template_from_project(db, project_id, template_id)
+    except ProjectTemplateNotLinkedError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
 @router.post(
@@ -190,5 +209,8 @@ async def refresh_project_template(
     template_id: int,
     db: Session = Depends(get_db),
 ) -> TemplateRefreshResponse:
-    result = template_service.refresh_project_template(db, project_id, template_id)
-    return TemplateRefreshResponse(**result)
+    try:
+        result = template_service.refresh_project_template(db, project_id, template_id)
+        return TemplateRefreshResponse(**result)
+    except ProjectTemplateNotLinkedError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))

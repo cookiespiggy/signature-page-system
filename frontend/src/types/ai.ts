@@ -5,6 +5,8 @@ export interface DedupSuggestion {
   merge_keys: string[]
   reason: string
   confidence: number
+  evidence_list?: string[] | null
+  risk_note?: string | null
   source?: string | null
   trust_level?: TrustLevel | null
   rules_match?: boolean | null
@@ -23,6 +25,9 @@ export interface ValidationIssue {
   variable_key: string
   message: string
   suggestion?: string | null
+  confidence?: number | null
+  evidence_list?: string[] | null
+  risk_note?: string | null
   source?: string | null
   cross_validated?: boolean | null
 }

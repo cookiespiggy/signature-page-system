@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 
 import { AiBadge, TrustLevelBadge } from "@/components/ai/AiBadge"
 import { AiDegradedBanner } from "@/components/ai/AiDegradedBanner"
+import { ConfidenceMeter, EvidenceSection, RiskNote } from "@/components/ai/AiReasoning"
 import { Button } from "@/components/ui/button"
 import { GoldPanel } from "@/components/layout/GoldPanel"
 import type { AiDedupResponse, DedupSuggestion } from "@/types/ai"
@@ -49,9 +50,7 @@ function SuggestionCard({
         {suggestion.source === "alias" ? (
           <span className="text-xs text-muted-foreground">规则匹配</span>
         ) : null}
-        <span className="text-xs text-muted-foreground">
-          置信度 {(suggestion.confidence * 100).toFixed(0)}%
-        </span>
+        <ConfidenceMeter confidence={suggestion.confidence} />
       </div>
 
       <p className="text-sm">
@@ -64,6 +63,9 @@ function SuggestionCard({
         ))}
       </p>
       <p className="text-sm text-muted-foreground">{suggestion.reason}</p>
+
+      <EvidenceSection evidence={suggestion.evidence_list} />
+      <RiskNote note={suggestion.risk_note} />
 
       {suggestion.warnings?.length ? (
         <ul className="space-y-1 text-xs text-muted-foreground">

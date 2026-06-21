@@ -35,6 +35,9 @@ export interface ParsedVariable {
   trust_level?: string | null
   suggested_key?: string | null
   warnings?: string[] | null
+  confidence?: number | null
+  evidence_list?: string[] | null
+  risk_note?: string | null
 }
 
 export interface TemplateParseResponse {

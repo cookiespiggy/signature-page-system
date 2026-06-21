@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.exceptions import ProjectNotFoundError
 from app.schemas import ProjectCreate, ProjectResponse, ProjectUpdate
 from app.services import project_service
 
@@ -30,7 +31,10 @@ async def get_project(
     project_id: int,
     db: Session = Depends(get_db),
 ) -> ProjectResponse:
-    return project_service.get_project(db, project_id)
+    try:
+        return project_service.get_project(db, project_id)
+    except ProjectNotFoundError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -39,12 +43,15 @@ async def update_project(
     body: ProjectUpdate,
     db: Session = Depends(get_db),
 ) -> ProjectResponse:
-    return project_service.update_project(
-        db,
-        project_id,
-        name=body.name,
-        project_status=body.status,
-    )
+    try:
+        return project_service.update_project(
+            db,
+            project_id,
+            name=body.name,
+            project_status=body.status,
+        )
+    except ProjectNotFoundError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -52,4 +59,7 @@ async def delete_project(
     project_id: int,
     db: Session = Depends(get_db),
 ) -> None:
-    project_service.delete_project(db, project_id)
+    try:
+        project_service.delete_project(db, project_id)
+    except ProjectNotFoundError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))

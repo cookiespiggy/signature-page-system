@@ -29,17 +29,23 @@ import {
   scrollToVariableField,
 } from "@/lib/validation-highlight"
 import { validateVariableValue } from "@/lib/validation"
+import { cn } from "@/lib/utils"
 import { getErrorMessage, variablesApi } from "@/services/api"
 import type { AiDedupResponse, AiValidateResponse, DedupSuggestion } from "@/types/ai"
 import type { BatchOperationResponse } from "@/types/variable"
+import type { ProjectTemplate, Template } from "@/types/template"
 
 interface VariableStepProps {
   projectId: number
   fields: VariableField[]
   loading: boolean
   dirty: boolean
+  aiValidateRunCount: number
+  templates: Template[]
+  projectTemplates: ProjectTemplate[]
   onFieldsChange: (fields: VariableField[]) => void
   onDirtyChange: (dirty: boolean) => void
+  onValidationResult: (issues: ValidationIssue[]) => void
   onReload: () => Promise<void>
 }
 
@@ -58,8 +64,12 @@ export function VariableStep({
   fields,
   loading,
   dirty,
+  aiValidateRunCount,
+  templates,
+  projectTemplates,
   onFieldsChange,
   onDirtyChange,
+  onValidationResult,
   onReload,
 }: VariableStepProps) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -73,9 +83,43 @@ export function VariableStep({
   const [validateResult, setValidateResult] = useState<AiValidateResponse | null>(null)
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null)
   const [applyingDedupKey, setApplyingDedupKey] = useState<string | null>(null)
+  const [filterTemplateId, setFilterTemplateId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const grouped = useMemo(() => groupFieldsByCategory(fields), [fields])
+  const templateNameMap = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const tpl of templates) {
+      map.set(tpl.id, tpl.name)
+    }
+    return map
+  }, [templates])
+
+  const selectedTemplates = useMemo(() => {
+    const selectedIds = new Set(projectTemplates.map((pt) => pt.template_id))
+    return templates.filter((tpl) => selectedIds.has(tpl.id))
+  }, [templates, projectTemplates])
+
+  const templateStatsMap = useMemo(() => {
+    const stats = new Map<number, { total: number; filled: number }>()
+    for (const tpl of selectedTemplates) {
+      const belonging = fields.filter((f) => f.sourceTemplateIds.includes(tpl.id))
+      const filled = belonging.filter((f) => f.rows.every((r) => r.value.trim()))
+      stats.set(tpl.id, { total: belonging.length, filled: filled.length })
+    }
+    return stats
+  }, [fields, selectedTemplates])
+
+  const overallFilled = useMemo(
+    () => fields.filter((f) => f.rows.every((r) => r.value.trim())).length,
+    [fields],
+  )
+
+  const filteredFields = useMemo(() => {
+    if (filterTemplateId === null) return fields
+    return fields.filter((f) => f.sourceTemplateIds.includes(filterTemplateId))
+  }, [fields, filterTemplateId])
+
+  const grouped = useMemo(() => groupFieldsByCategory(filteredFields), [filteredFields])
   const validationHighlights = useMemo(
     () =>
       validateResult ? buildValidationHighlights(fields, validateResult.issues) : {},
@@ -283,6 +327,7 @@ export function VariableStep({
         }
         return updated
       })
+      onValidationResult(result.issues)
       if (!result.ai_used && result.issues.length === 0) {
         toast.warning(result.message ?? "AI 服务不可用，仅展示正则校验结果")
       }
@@ -375,19 +420,24 @@ export function VariableStep({
           )}
           AI 智能去重
         </Button>
-        <Button
-          variant="outline"
-          className="border-primary/30"
-          disabled={validateLoading}
-          onClick={() => void handleAiValidate()}
-        >
-          {validateLoading ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Sparkles className="size-4" />
-          )}
-          AI 校验
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-primary/30"
+            disabled={validateLoading}
+            onClick={() => void handleAiValidate()}
+          >
+            {validateLoading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            AI 校验
+          </Button>
+          {aiValidateRunCount === 0 ? (
+            <span className="text-[11px] text-muted-foreground">建议在生成前运行</span>
+          ) : null}
+        </div>
       </div>
 
       {dedupLoading ? <AiLoadingPanel label="正在分析变量语义…" /> : null}
@@ -412,17 +462,94 @@ export function VariableStep({
         />
       ) : null}
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setFilterTemplateId(null)}
+          className={cn(
+            "flex min-w-[120px] flex-col rounded-lg border p-3 text-left transition-colors hover:border-primary/30",
+            filterTemplateId === null
+              ? "border-primary bg-primary/5"
+              : "border-primary/15",
+          )}
+        >
+          <span className="text-sm font-medium">全部模板</span>
+          <span className="mt-0.5 text-xs text-muted-foreground">
+            {overallFilled}/{fields.length} 已填
+          </span>
+        </button>
+        {selectedTemplates.map((tpl) => {
+          const stats = templateStatsMap.get(tpl.id)
+          if (!stats || stats.total === 0) return null
+          const allDone = stats.filled === stats.total
+          return (
+            <button
+              key={tpl.id}
+              type="button"
+              onClick={() =>
+                setFilterTemplateId(filterTemplateId === tpl.id ? null : tpl.id)
+              }
+              className={cn(
+                "flex min-w-[120px] flex-col rounded-lg border p-3 text-left transition-colors hover:border-primary/30",
+                filterTemplateId === tpl.id
+                  ? "border-primary bg-primary/5"
+                  : "border-primary/15",
+              )}
+            >
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                {allDone ? (
+                  <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-primary" fill="currentColor">
+                    <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
+                  </svg>
+                ) : (
+                  <span className="size-1.5 shrink-0 rounded-full bg-destructive/60" />
+                )}
+                {tpl.name}
+              </span>
+              <span className="mt-0.5 text-xs text-muted-foreground">
+                {stats.filled}/{stats.total} 已填
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {filterTemplateId !== null ? (
+        <p className="text-xs text-muted-foreground">
+          正在筛选：{templateNameMap.get(filterTemplateId) ?? "未知模板"} 的变量
+          <button
+            type="button"
+            className="ml-2 text-primary underline underline-offset-2"
+            onClick={() => setFilterTemplateId(null)}
+          >
+            清除筛选
+          </button>
+        </p>
+      ) : null}
+
       {Array.from(grouped.entries()).map(([category, categoryFields]) => (
         <GoldPanel key={category} className="p-6">
           <h3 className="mb-4 font-heading text-lg">{getCategoryLabel(category)}</h3>
           <div className="space-y-5">
-            {categoryFields.map((field) => (
-              <div key={field.baseKey} id={`var-field-${field.baseKey}`}>
-                <label className="mb-2 block text-sm font-medium">
-                  {field.label}
-                  {field.required ? <span className="ml-1 text-destructive">*</span> : null}
-                  <span className="ml-2 text-xs text-muted-foreground">{field.baseKey}</span>
-                </label>
+              {categoryFields.map((field) => (
+                <div key={field.baseKey} id={`var-field-${field.baseKey}`}>
+                  <label className="mb-2 flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                    <span>{field.label}</span>
+                    {field.required ? <span className="text-destructive">*</span> : null}
+                    {field.sourceTemplateIds.map((tid) => {
+                      const name = templateNameMap.get(tid)
+                      if (!name) return null
+                      return (
+                        <span
+                          key={tid}
+                          className="inline-flex items-center rounded border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary/70"
+                        >
+                          {name}
+                        </span>
+                      )
+                    })}
+                    <span className="text-xs text-muted-foreground">{field.baseKey}</span>
+                  </label>
 
                 {field.isMultiple ? (
                   <div className="space-y-2">

@@ -3,6 +3,16 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { GenerationStep } from "@/components/detail/GenerationStep"
 import { StepNav, type DetailStep } from "@/components/detail/StepNav"
 import { TemplateStep } from "@/components/detail/TemplateStep"
@@ -23,6 +33,7 @@ import {
   variablesApi,
   type ApiRequestState,
 } from "@/services/api"
+import type { ValidationIssue } from "@/types/ai"
 import type { Project } from "@/types/project"
 import type { ProjectTemplate, Template } from "@/types/template"
 
@@ -46,6 +57,10 @@ export function DetailPage() {
   const [variablesDirty, setVariablesDirty] = useState(false)
 
   const [stepTransitioning, setStepTransitioning] = useState(false)
+  const [transitionMessage, setTransitionMessage] = useState<string | null>(null)
+  const [aiValidateRunCount, setAiValidateRunCount] = useState(0)
+  const [aiValidationIssues, setAiValidationIssues] = useState<ValidationIssue[]>([])
+  const [showForceOverride, setShowForceOverride] = useState(false)
 
   const loadProject = useCallback(async () => {
     if (!projectId || Number.isNaN(projectId)) return
@@ -149,7 +164,6 @@ export function DetailPage() {
       if (updated.length > 0) {
         setMaxReachable(3)
       }
-      toast.success("变量已保存")
       return true
     } catch (error) {
       toast.error(getErrorMessage(error))
@@ -164,8 +178,10 @@ export function DetailPage() {
         return
       }
       setStepTransitioning(true)
+      setTransitionMessage("正在保存模板选择...")
       try {
         await syncTemplates()
+        setTransitionMessage("正在加载变量...")
         await loadVariables()
         setMaxReachable(2)
         setStep(2)
@@ -173,11 +189,24 @@ export function DetailPage() {
         toast.error(getErrorMessage(error))
       } finally {
         setStepTransitioning(false)
+        setTransitionMessage(null)
       }
       return
     }
 
     if (step === 2) {
+      if (aiValidateRunCount > 0) {
+        const errors = aiValidationIssues.filter((i) => i.level === "error")
+        if (errors.length > 0) {
+          setShowForceOverride(true)
+          return
+        }
+      } else if (aiValidateRunCount === 0 && variableFields.some((f) => f.isMerged)) {
+          toast.info("建议先运行「AI 校验」检查变量值格式，再生成文档")
+          setAiValidateRunCount(-1)
+          return
+        }
+
       setStepTransitioning(true)
       try {
         const saved = await saveVariables()
@@ -187,6 +216,21 @@ export function DetailPage() {
       } finally {
         setStepTransitioning(false)
       }
+    }
+  }
+
+  const handleForceOverride = async () => {
+    setShowForceOverride(false)
+    const errors = aiValidationIssues.filter((i) => i.level === "error")
+    toast.warning(`已忽略 ${errors.length} 个 AI 校验错误，请确认变量值正确`)
+    setStepTransitioning(true)
+    try {
+      const saved = await saveVariables()
+      if (saved) {
+        setStep(3)
+      }
+    } finally {
+      setStepTransitioning(false)
     }
   }
 
@@ -297,14 +341,28 @@ export function DetailPage() {
         />
       ) : null}
 
-      {step === 2 ? (
+      {step === 2 && stepTransitioning && transitionMessage ? (
+        <GoldPanel className="flex items-center justify-center gap-3 p-12">
+          <Loader2 className="size-5 animate-spin text-primary" />
+          <span className="text-muted-foreground">{transitionMessage}</span>
+        </GoldPanel>
+      ) : null}
+
+      {step === 2 && !stepTransitioning ? (
         <VariableStep
           projectId={projectId}
           fields={variableFields}
           loading={variablesLoading}
           dirty={variablesDirty}
+          aiValidateRunCount={aiValidateRunCount}
+          templates={templates}
+          projectTemplates={projectTemplates}
           onFieldsChange={setVariableFields}
           onDirtyChange={setVariablesDirty}
+          onValidationResult={(issues) => {
+            setAiValidationIssues(issues)
+            setAiValidateRunCount((c) => c + 1)
+          }}
           onReload={async () => {
             await loadVariables()
           }}
@@ -352,6 +410,35 @@ export function DetailPage() {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={showForceOverride} onOpenChange={setShowForceOverride}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>AI 校验存在错误</AlertDialogTitle>
+            <AlertDialogDescription>
+              AI 校验发现 {aiValidationIssues.filter((i) => i.level === "error").length} 个错误，
+              建议返回修正后再生成文档。忽略错误可能导致生成的 Word 文件内容有误。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {aiValidationIssues.filter((i) => i.level === "error").length > 0 ? (
+            <div className="max-h-32 space-y-1 overflow-y-auto rounded border border-destructive/20 bg-destructive/5 p-3 text-sm">
+              {aiValidationIssues
+                .filter((i) => i.level === "error")
+                .map((issue, idx) => (
+                  <p key={idx} className="text-destructive">
+                    {issue.variable_key}：{issue.message}
+                  </p>
+                ))}
+            </div>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>返回修改</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleForceOverride()}>
+              忽略错误，继续生成
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from app.services.llm.base import LLMProvider
+from app.services.llm.longcat_provider import LongCatProvider
 from app.services.llm.mock_provider import MockProvider
 from app.services.llm.openai_provider import OpenAIProvider
 from app.services.llm.opencode_provider import OpenCodeProvider
@@ -22,7 +23,9 @@ def get_llm_provider() -> LLMProvider:
 
 def create_llm_provider(provider: str | None = None) -> LLMProvider:
     """根据名称创建 Provider，默认读取 LLM_PROVIDER 环境变量。"""
-    name = (provider or os.getenv("LLM_PROVIDER", "opencode")).lower().strip()
+    name = (provider or os.getenv("LLM_PROVIDER", "longcat")).lower().strip()
+    if name == "longcat":
+        return LongCatProvider()
     if name == "opencode":
         return OpenCodeProvider()
     if name == "openai":

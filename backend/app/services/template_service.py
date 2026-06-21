@@ -12,10 +12,16 @@ from typing import Any
 
 from docx import Document
 from docx.text.paragraph import Paragraph
-from fastapi import HTTPException, UploadFile, status
+from fastapi import UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.exceptions import (
+    PresetTemplateDeleteForbidden,
+    ProjectTemplateNotLinkedError,
+    TemplateNotFoundError,
+    TemplateReferencedError,
+)
 from app.models import CustomVariable, Project, ProjectTemplate, Template, Variable
 from app.services import ai_service
 from app.services.ai_guardrail import cross_validate_parsed_variables
@@ -167,6 +173,9 @@ def enrich_parsed_variables(variables: list[dict[str, Any]]) -> list[dict[str, A
         key = var.get("key", "")
         base = build_variable_definition(key, var)
         base["is_registered"] = is_key_registered(key)
+        for extra in ("confidence", "evidence_list", "risk_note"):
+            if extra in var and var[extra] is not None:
+                base[extra] = var[extra]
         enriched.append(base)
     return enriched
 
@@ -180,10 +189,7 @@ async def save_upload_file(upload: UploadFile, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     suffix = Path(upload.filename or "template.docx").suffix.lower()
     if suffix != ".docx":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="仅支持 .docx 文件",
-        )
+        raise ValueError("仅支持 .docx 文件")
     filename = f"{uuid.uuid4().hex[:12]}{suffix}"
     dest_path = dest_dir / filename
     content = await upload.read()
@@ -261,10 +267,7 @@ def list_templates(db: Session) -> list[Template]:
 def get_template(db: Session, template_id: int) -> Template:
     template = db.get(Template, template_id)
     if template is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"模板 {template_id} 不存在",
-        )
+        raise TemplateNotFoundError(f"模板 {template_id} 不存在")
     return template
 
 
@@ -395,10 +398,7 @@ def update_template(
 def delete_template(db: Session, template_id: int) -> None:
     template = get_template(db, template_id)
     if template.is_preset:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="预置模板不可删除",
-        )
+        raise PresetTemplateDeleteForbidden("预置模板不可删除")
 
     ref_count = db.scalar(
         select(func.count()).select_from(ProjectTemplate).where(
@@ -406,9 +406,8 @@ def delete_template(db: Session, template_id: int) -> None:
         )
     )
     if ref_count and ref_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="模板仍被项目引用，请先从相关项目中移除后再删除",
+        raise TemplateReferencedError(
+            "模板仍被项目引用，请先从相关项目中移除后再删除"
         )
 
     if template.file_path:
@@ -637,9 +636,8 @@ def remove_template_from_project(
         )
     )
     if pt is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"项目 {project_id} 未关联模板 {template_id}",
+        raise ProjectTemplateNotLinkedError(
+            f"项目 {project_id} 未关联模板 {template_id}"
         )
 
     variables = list(
@@ -671,9 +669,8 @@ def refresh_project_template(
         )
     )
     if pt is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"项目 {project_id} 未关联模板 {template_id}",
+        raise ProjectTemplateNotLinkedError(
+            f"项目 {project_id} 未关联模板 {template_id}"
         )
 
     old_snapshot = pt.variables_snapshot_json or []

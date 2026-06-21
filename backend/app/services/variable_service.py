@@ -7,11 +7,12 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import UploadFile
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.exceptions import ExcelFormatError, ExcelParseError
 from app.models import AILog, Variable
 from app.services import ai_service
 from app.services.ai_guardrail import (
@@ -20,6 +21,14 @@ from app.services.ai_guardrail import (
 )
 from app.services.project_service import get_project
 from app.services.variable_registry import VALIDATION_RULES, get_merged_registry
+from app.types import (
+    AIDedupResult,
+    AIValidateResult,
+    BatchResult,
+    DedupSuggestionDict,
+    ValidationIssueDict,
+    VariableDict,
+)
 
 EXCEL_HEADERS = ("变量标识(key)", "变量名称(label)", "值(value)")
 _BASE_KEY_PATTERN = re.compile(r"^(.+)_(\d+)$")
@@ -36,7 +45,7 @@ def _normalize_dt(dt: datetime | None) -> datetime | None:
     return dt.replace(tzinfo=None) if dt.tzinfo else dt
 
 
-def _variable_to_dict(var: Variable) -> dict[str, Any]:
+def _variable_to_dict(var: Variable) -> VariableDict:
     return {
         "key": var.key,
         "label": var.label,
@@ -53,7 +62,7 @@ def _variable_to_dict(var: Variable) -> dict[str, Any]:
     }
 
 
-def list_variables(db: Session, project_id: int) -> list[dict[str, Any]]:
+def list_variables(db: Session, project_id: int) -> list[VariableDict]:
     get_project(db, project_id)
     stmt = (
         select(Variable)
@@ -113,7 +122,7 @@ def save_variables(
     db: Session,
     project_id: int,
     items: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> BatchResult:
     """逐行乐观锁保存变量值，部分成功策略。"""
     get_project(db, project_id)
     success: list[dict[str, Any]] = []
@@ -182,7 +191,9 @@ def save_variables(
     }
 
 
-def get_alias_dedup_suggestions(variables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def get_alias_dedup_suggestions(
+    variables: list[VariableDict],
+) -> list[DedupSuggestionDict]:
     """基于注册表 aliases 的规则去重建议。"""
     registry = get_merged_registry()
     suggestions: list[dict[str, Any]] = []
@@ -226,7 +237,9 @@ def get_alias_dedup_suggestions(variables: list[dict[str, Any]]) -> list[dict[st
     return suggestions
 
 
-async def ai_dedup_suggestions(db: Session, project_id: int) -> dict[str, Any]:
+async def ai_dedup_suggestions(
+    db: Session, project_id: int
+) -> AIDedupResult:
     """AI 变量去重建议（含别名规则建议）。"""
     variables = list_variables(db, project_id)
     alias_suggestions = get_alias_dedup_suggestions(variables)
@@ -272,8 +285,8 @@ async def ai_dedup_suggestions(db: Session, project_id: int) -> dict[str, Any]:
 def apply_dedup_suggestions(
     db: Session,
     project_id: int,
-    suggestions: list[dict[str, Any]],
-) -> dict[str, Any]:
+    suggestions: list[DedupSuggestionDict],
+) -> dict[str, int]:
     """应用去重合并建议。"""
     get_project(db, project_id)
     merged_count = 0
@@ -309,7 +322,6 @@ def apply_dedup_suggestions(
     db.commit()
     return {"merged_rows": merged_count}
 
-
 def _find_primary_variable(db: Session, project_id: int, key: str) -> Variable | None:
     exact = _find_variable(db, project_id, key)
     if exact:
@@ -323,7 +335,9 @@ def _find_variables_by_base(db: Session, project_id: int, base_key: str) -> list
     return [v for v in db.scalars(stmt).all() if _base_key(v.key) == base_key]
 
 
-def _run_regex_validation(variables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _run_regex_validation(
+    variables: list[VariableDict],
+) -> list[ValidationIssueDict]:
     issues: list[dict[str, Any]] = []
     for var in variables:
         if not var.get("value"):
@@ -352,7 +366,9 @@ def _run_regex_validation(variables: list[dict[str, Any]]) -> list[dict[str, Any
     return issues
 
 
-async def ai_validate_variables(db: Session, project_id: int) -> dict[str, Any]:
+async def ai_validate_variables(
+    db: Session, project_id: int
+) -> AIValidateResult:
     """基础正则校验 + AI 语义校验。"""
     variables = list_variables(db, project_id)
     regex_issues = _run_regex_validation(variables)
@@ -374,7 +390,7 @@ async def ai_validate_variables(db: Session, project_id: int) -> dict[str, Any]:
             for v in variables
             if v.get("value")
         ]
-        result = await ai_service.validate_variable_data(filled, VALIDATION_RULES)
+        result = await ai_service.validate_variable_data(filled)
         ai_issues = result.get("issues", [])
         for issue in ai_issues:
             issue["source"] = "ai"
@@ -453,9 +469,8 @@ def _parse_excel_rows(content: bytes) -> list[dict[str, Any]]:
     rows_iter = ws.iter_rows(values_only=True)
     header = next(rows_iter, None)
     if not header or len(header) < 3:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Excel 格式错误：需要三列（变量标识、变量名称、值）",
+        raise ExcelFormatError(
+            "Excel 格式错误：需要三列（变量标识、变量名称、值）"
         )
 
     parsed: list[dict[str, Any]] = []
@@ -481,13 +496,10 @@ async def import_preview(
     content = await upload.read()
     try:
         parsed_rows = _parse_excel_rows(content)
-    except HTTPException:
+    except ExcelFormatError:
         raise
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"无法解析 Excel 文件: {exc}",
-        ) from exc
+        raise ExcelParseError(f"无法解析 Excel 文件: {exc}") from exc
 
     known = {v["key"]: v for v in list_variables(db, project_id)}
     success: list[dict[str, Any]] = []

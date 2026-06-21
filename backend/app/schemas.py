@@ -76,6 +76,9 @@ class ParsedVariable(BaseModel):
     trust_level: str | None = None
     suggested_key: str | None = None
     warnings: list[str] | None = None
+    confidence: float | None = Field(None, ge=0.0, le=1.0, description="LLM 自评置信度")
+    evidence_list: list[str] | None = Field(None, description="从模板中提取该变量的依据片段")
+    risk_note: str | None = Field(None, description="LLM 识别的提取风险说明")
 
 
 class TemplateParseResult(BaseModel):
@@ -87,6 +90,8 @@ class DedupSuggestion(BaseModel):
     merge_keys: list[str]
     reason: str
     confidence: float = Field(ge=0.0, le=1.0)
+    evidence_list: list[str] | None = Field(None, description="LLM 给出该建议的依据")
+    risk_note: str | None = Field(None, description="LLM 识别的合并风险说明")
 
 
 class VariableDedupResult(BaseModel):
@@ -98,6 +103,9 @@ class ValidationIssue(BaseModel):
     variable_key: str
     message: str
     suggestion: str | None = None
+    confidence: float | None = Field(None, ge=0.0, le=1.0, description="LLM 自评置信度")
+    evidence_list: list[str] | None = Field(None, description="LLM 给出该判断的依据")
+    risk_note: str | None = Field(None, description="LLM 识别的风险说明")
 
 
 class DataValidateResult(BaseModel):
@@ -221,6 +229,8 @@ class DedupSuggestionResponse(BaseModel):
     merge_keys: list[str]
     reason: str
     confidence: float = Field(ge=0.0, le=1.0)
+    evidence_list: list[str] | None = None
+    risk_note: str | None = None
     source: str | None = None
     trust_level: str | None = None
     rules_match: bool | None = None
@@ -247,6 +257,9 @@ class ValidationIssueResponse(BaseModel):
     variable_key: str
     message: str
     suggestion: str | None = None
+    confidence: float | None = None
+    evidence_list: list[str] | None = None
+    risk_note: str | None = None
     source: str | None = None
     cross_validated: bool | None = None
 

@@ -2,6 +2,7 @@ import { Plus, Trash2, Wand2 } from "lucide-react"
 
 import { AiBadge, TrustLevelBadge } from "@/components/ai/AiBadge"
 import { AiDegradedBanner } from "@/components/ai/AiDegradedBanner"
+import { ConfidenceMeter, EvidenceSection, RiskNote } from "@/components/ai/AiReasoning"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { GoldPanel } from "@/components/layout/GoldPanel"
@@ -95,13 +96,18 @@ export function ParsedVariablesEditor({
                 variable.trust_level === "medium" && "border-primary/30",
               )}
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <TrustLevelBadge level={variable.trust_level} />
-                {variable.is_registered ? (
-                  <span className="text-xs text-muted-foreground">已注册</span>
-                ) : null}
+              {/* 行1: 可信度 + LLM 自信度 */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <TrustLevelBadge level={variable.trust_level} />
+                  {variable.is_registered ? (
+                    <span className="text-xs text-muted-foreground">已注册</span>
+                  ) : null}
+                </div>
+                <ConfidenceMeter confidence={variable.confidence} />
               </div>
 
+              {/* 行2: 编辑区 */}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">中文名称</label>
@@ -121,12 +127,20 @@ export function ParsedVariablesEditor({
                 </div>
               </div>
 
+              {/* 行3: 元数据 */}
               <p className="text-xs text-muted-foreground">
                 {variable.category} · {variable.data_type}
                 {variable.is_multiple ? " · 多值" : ""}
                 {variable.required ? " · 必填" : ""}
               </p>
 
+              {/* 行4: 提取依据（可折叠） */}
+              <EvidenceSection evidence={variable.evidence_list} />
+
+              {/* 行5: 风险提示 */}
+              <RiskNote note={variable.risk_note} />
+
+              {/* 行6: AI 建议 key */}
               {variable.suggested_key ? (
                 <div className="flex flex-wrap items-center gap-2 rounded border border-primary/20 bg-primary/5 p-2 text-sm">
                   <span className="text-muted-foreground">
@@ -146,6 +160,7 @@ export function ParsedVariablesEditor({
                 </div>
               ) : null}
 
+              {/* 行7: 系统警告 */}
               {variable.warnings?.length ? (
                 <ul className="space-y-1 text-xs text-muted-foreground">
                   {variable.warnings.map((warning, warningIndex) => (
@@ -154,6 +169,7 @@ export function ParsedVariablesEditor({
                 </ul>
               ) : null}
 
+              {/* 行8: 操作区 */}
               <div className="flex justify-end">
                 <Button
                   type="button"

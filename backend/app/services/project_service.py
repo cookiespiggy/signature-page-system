@@ -7,10 +7,10 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.exceptions import ProjectNotFoundError
 from app.models import GeneratedFile, GenerationTask, Project
 
 GENERATED_DIR = os.getenv("GENERATED_DIR", "data/generated")
@@ -30,10 +30,7 @@ def list_projects(db: Session) -> list[Project]:
 def get_project(db: Session, project_id: int) -> Project:
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"项目 {project_id} 不存在",
-        )
+        raise ProjectNotFoundError(f"项目 {project_id} 不存在")
     return project
 
 

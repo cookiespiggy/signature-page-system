@@ -37,7 +37,7 @@ Playwright 自动录制的 MVP 全流程（列表 → 新建项目 → 选模板
 | 模板渲染 | docxtpl (Jinja2)、python-docx、openpyxl |
 | 前端 | React 19 + TypeScript、Vite、Tailwind CSS v4、shadcn/ui |
 | LLM | LLMProvider 抽象层（OpenCode / OpenAI / Mock 可切换） |
-| 异步生成 | ThreadPoolExecutor + threading.Event（支持取消） |
+| 异步生成 | Temporal Workflow + Activity（支持取消、声明式重试、进程崩溃恢复）<br>Legacy: ThreadPoolExecutor + threading.Event |
 
 ## 项目结构
 
@@ -54,9 +54,15 @@ junhe-mvp/
 │   │   │   ├── llm/         # LLMProvider 抽象层 (opencode / openai / mock)
 │   │   │   ├── ai_service.py        # AI 编排（解析 / 去重 / 校验）
 │   │   │   ├── ai_guardrail.py      # AI 交叉验证护栏
-│   │   │   ├── generation_service.py # 异步文档生成
+│   │   │   ├── generation_service.py # 文档生成（Legacy ThreadPool 模式）
 │   │   │   ├── variable_registry.py  # 变量映射表
 │   │   │   └── ...
+│   │   ├── temporal/        # Temporal Workflow 集成
+│   │   │   ├── workflows/   # DocumentGenerationWorkflow / AIActivityWorkflow
+│   │   │   ├── activities/  # 文档渲染 / 状态更新 / LLM 调用
+│   │   │   ├── worker.py    # Worker 启动脚本
+│   │   │   ├── client.py    # Temporal Client 单例
+│   │   │   └── config.py    # 连接配置
 │   │   └── templates/       # 3 个预置 Word 模板
 │   ├── alembic/             # 数据库迁移
 │   └── tests/               # pytest 集成测试
@@ -79,50 +85,50 @@ junhe-mvp/
 
 ## 快速开始
 
-> 环境隔离：后端在本机 OrbStack 虚拟机（`oh-agent`）内运行，避免污染宿主机 macOS 环境。前端在宿主机运行。
-
-### 数据库迁移
+### 后端环境准备
 
 ```bash
-orb -m oh-agent bash -lc 'cd backend && uv run alembic upgrade head'
+cd backend
+uv sync                           # 安装 Python 依赖
+uv run alembic upgrade head       # 初始化数据库
 ```
 
 ### 启动后端
 
 ```bash
-# （首次或重启 VM 时）启动 OpenCode Server
-orb -m oh-agent bash -lc 'nohup /home/jimmy/.opencode/bin/opencode serve --port 4096 > /dev/null 2>&1 &'
+# Legacy 模式（ThreadPoolExecutor，默认）
+cd backend
+uv run uvicorn app.main:app --port 8000
 
-# 启动 FastAPI（--host 0.0.0.0 供宿主机 Vite 代理访问）
-orb -m oh-agent bash -lc 'cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000'
+# Temporal 模式（推荐，需先启动 Temporal Server 和 Worker）
+# 终端 1: Temporal Server
+temporal server start-dev --db-filename /tmp/temporal-dev.db
 
-# 离线 / 无 LLM 环境可切回 Mock
-# orb -m oh-agent bash -lc 'cd backend && LLM_PROVIDER=mock uv run uvicorn app.main:app --host 0.0.0.0 --port 8000'
+# 终端 2: Temporal Worker
+cd backend && uv run python -m app.temporal.worker
+
+# 终端 3: FastAPI (Temporal 模式)
+cd backend && USE_TEMPORAL=true uv run uvicorn app.main:app --port 8000
+
+# 离线 / 无 LLM 环境可切 Mock
+# LLM_PROVIDER=mock uv run uvicorn app.main:app --port 8000
 ```
 
-健康检查：`GET http://<vm-ip>:8000/api/health`，API 文档：`http://<vm-ip>:8000/docs`。
+健康检查：`GET http://localhost:8000/api/health`，API 文档：`http://localhost:8000/docs`。Temporal Web UI：`http://localhost:8233`。
 
 ### 启动前端
 
 ```bash
 cd frontend
-cp .env.development.example .env.development   # 配置 VITE_API_PROXY_TARGET 指向 VM IP
 npm install
-npm run dev                                    # 默认 http://localhost:5173
+npm run dev    # 默认 http://localhost:5173
 ```
 
 ### 运行测试
 
 ```bash
-orb -m oh-agent bash -lc 'cd backend && uv run pytest'   # 后端集成测试
-cd frontend && npm run build                              # 前端类型检查 + 构建
-```
-
-### 清理临时进程
-
-```bash
-orb -m oh-agent bash -lc 'pkill -f "uvicorn app.main:app"'
-pkill -f "vite" 2>/dev/null
+cd backend && uv run pytest         # 后端集成测试
+cd frontend && npm run build        # 前端类型检查 + 构建
 ```
 
 ## 环境变量
@@ -132,6 +138,9 @@ pkill -f "vite" 2>/dev/null
 | `DATABASE_URL` | `sqlite:///./data/junhe.db` | 数据库连接 |
 | `LLM_PROVIDER` | `opencode` | LLM 提供方：`opencode` / `mock` / `openai` |
 | `GENERATED_DIR` | `data/generated` | 生成文件目录 |
+| `USE_TEMPORAL` | `false` | 启用 Temporal Workflow 模式（`true`/`false`） |
+| `TEMPORAL_HOST` | `localhost` | Temporal Server 地址 |
+| `TEMPORAL_PORT` | `7233` | Temporal Server gRPC 端口 |
 
 ## 文档索引
 
@@ -143,6 +152,6 @@ pkill -f "vite" 2>/dev/null
 
 ## 状态与路线图
 
-MVP 已全部完成（项目 / 模板 / 变量 / AI / 异步生成下载全流程打通，后端 pytest 通过、前端构建通过）。
+MVP 已全部完成（项目 / 模板 / 变量 / AI / 异步生成下载全流程打通，后端 pytest 通过、前端构建通过）。Phase 2 Temporal 迁移已完成（DocumentGenerationWorkflow + AIActivityWorkflow 端到端验证通过）。
 
 V2 规划：用户登录、PDF 输出、套表组一键选包、删除进行中生成任务的优雅等待。

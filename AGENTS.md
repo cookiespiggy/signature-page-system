@@ -401,30 +401,24 @@ Session 1a (后端初始化+数据层)
 
 ### 启动命令
 ```bash
-# 0. 若 uv run 报 ModuleNotFoundError: No module named 'python'，说明 .venv 在 macOS 创建，需在 VM 内重建：
-orb -m oh-agent bash -lc 'cd backend && rm -rf .venv && uv sync'
+# 1. 后端（本机运行）
+cd backend && uv run uvicorn app.main:app --port 8000
 
-# 1. 先确保 OpenCode Server 在运行（仅在首次启动或重启 VM 时需要）
-orb -m oh-agent bash -lc 'nohup /home/jimmy/.opencode/bin/opencode serve --port 4096 > /dev/null 2>&1 &'
+# 离线 / 无 LLM 环境可切 Mock
+# cd backend && LLM_PROVIDER=mock uv run uvicorn app.main:app --port 8000
 
-# 2. 后端（在 oh-agent VM 内运行，--host 0.0.0.0 供宿主机 Vite 代理访问）
-orb -m oh-agent bash -lc 'cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000'
-
-# 3. 前端（宿主机直接运行；.env.development 中 VITE_API_PROXY_TARGET 指向 VM IP）
+# 2. 前端（另一个终端）
 cd frontend && npm run dev
 
-# 如需切回 Mock（如离线环境）
-# orb -m oh-agent bash -lc 'cd backend && LLM_PROVIDER=mock uv run uvicorn app.main:app --host 0.0.0.0 --port 8000'
-
-# 4. 联调结束后清理（避免残留进程占用端口，详见 docs/knowledge-base/环境配置.md）
-orb -m oh-agent bash -lc 'pkill -f "uvicorn app.main:app"'
+# 3. 联调结束后清理
+pkill -f "uvicorn app.main:app" 2>/dev/null
 pkill -f "vite" 2>/dev/null
 ```
 
 ### 数据库
 ```bash
-orb -m oh-agent bash -lc 'cd backend && uv run alembic upgrade head'    # 执行迁移
-orb -m oh-agent bash -lc 'cd backend && uv run alembic revision --autogenerate -m "描述"'  # 生成新迁移
+cd backend && uv run alembic upgrade head                              # 执行迁移
+uv run alembic revision --autogenerate -m "描述"                       # 生成新迁移
 ```
 
 ### 环境变量
@@ -448,7 +442,7 @@ orb -m oh-agent bash -lc 'cd backend && uv run alembic revision --autogenerate -
 ### 环境与部署
 | Skill / 文档 | 内容 | 何时查阅 |
 |------|------|---------|
-| Skill `dev-environment` | OrbStack VM、.venv、启动/清理命令 | session 开始时检查环境 |
+| Skill `dev-environment` | 本机 macOS 开发环境、.venv、启动/清理命令 | session 开始时检查环境 |
 | [`docs/knowledge-base/环境配置.md`](docs/knowledge-base/环境配置.md) | 完整场景矩阵与踩坑 | 环境疑难排查 |
 | Skill `opencode-server` | OpenCode 启动、API、模型选型 | LLM 相关 session |
 | [`docs/knowledge-base/OpenCode-Server.md`](docs/knowledge-base/OpenCode-Server.md) | OpenCode 端到端验证细节 | LLM 联调排错 |

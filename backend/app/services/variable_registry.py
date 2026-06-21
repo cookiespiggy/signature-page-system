@@ -1,4 +1,10 @@
-"""预置变量注册表、校验规则与模板变量映射。"""
+"""预置变量注册表、校验规则与模板变量映射。
+
+架构分层:
+  - STATIC_VARIABLE_REGISTRY: 静态 Schema Registry（git 版本控制、代码级定义、不可变）
+  - RuntimeVariableCache: 运行时动态注册（从 CustomVariable 表加载、应用启动时初始化）
+  - get_merged_registry(): 兼容层，合并两者（查询时显式选来源）
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,11 @@ class VariableDefinition(TypedDict, total=False):
     is_multiple: bool
 
 
-VARIABLE_REGISTRY: dict[str, VariableDefinition] = {
+# ---------------------------------------------------------------------------
+# 静态 Schema Registry — git 版本控制，不可变
+# ---------------------------------------------------------------------------
+
+STATIC_VARIABLE_REGISTRY: dict[str, VariableDefinition] = {
     # --- 通用变量（跨模板共享）---
     "target_company_name": {
         "label": "目标公司名称",
@@ -105,12 +115,25 @@ VARIABLE_REGISTRY: dict[str, VariableDefinition] = {
     },
 }
 
+# 向后兼容别名
+VARIABLE_REGISTRY = STATIC_VARIABLE_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# 校验规则
+# ---------------------------------------------------------------------------
+
 VALIDATION_RULES: dict[str, str] = {
     "natural_shareholder_id_number": r"^\d{17}[\dXx]$",
     "target_company_name": r".+股份有限公司|.+有限责任公司",
     "institutional_shareholder_name": r".+",
     "signing_date": r"^\d{4}年\d{1,2}月\d{1,2}日$",
 }
+
+
+# ---------------------------------------------------------------------------
+# 模板变量映射
+# ---------------------------------------------------------------------------
 
 TEMPLATE_VARIABLE_MAP: dict[str, list[str]] = {
     "law_firm_signing_page": [
@@ -141,30 +164,86 @@ TEMPLATE_VARIABLE_MAP: dict[str, list[str]] = {
     ],
 }
 
-_runtime_registry: dict[str, VariableDefinition] = {}
+
+# ---------------------------------------------------------------------------
+# Runtime Variable Cache — 从 CustomVariable 表加载，应用启动时初始化
+# ---------------------------------------------------------------------------
+
+
+class RuntimeVariableCache:
+    """运行时动态注册缓存。
+
+    从 CustomVariable 表加载，与静态注册表独立。
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[str, VariableDefinition] = {}
+
+    def register(self, key: str, definition: VariableDefinition) -> None:
+        """将用户确认的自定义变量写入缓存。"""
+        self._cache[key] = definition
+
+    def get(self, key: str) -> VariableDefinition | None:
+        return self._cache.get(key)
+
+    def all(self) -> dict[str, VariableDefinition]:
+        """返回所有运行时注册变量。"""
+        return dict(self._cache)
+
+    def clear(self) -> None:
+        """清空缓存（重新加载前调用）。"""
+        self._cache.clear()
+
+    def load_from_entries(self, entries: list[dict[str, Any]]) -> None:
+        """从数据库 CustomVariable 记录加载。"""
+        self._cache.clear()
+        for entry in entries:
+            key = entry["key"]
+            self._cache[key] = {
+                "label": entry["label"],
+                "category": entry.get("category", "other"),
+                "aliases": entry.get("aliases") or [],
+                "required": entry.get("required", False),
+                "is_multiple": entry.get("is_multiple", False),
+            }
+
+
+# 模块级单例
+_runtime_cache = RuntimeVariableCache()
+
+
+# ---------------------------------------------------------------------------
+# 查询接口（显式选来源）
+# ---------------------------------------------------------------------------
+
+
+def get_static_registry() -> dict[str, VariableDefinition]:
+    """仅返回静态 Schema Registry。"""
+    return dict(STATIC_VARIABLE_REGISTRY)
+
+
+def get_runtime_registry() -> dict[str, VariableDefinition]:
+    """仅返回运行时注册表。"""
+    return _runtime_cache.all()
 
 
 def get_merged_registry() -> dict[str, VariableDefinition]:
-    """返回预置注册表与运行时自定义变量的合并结果。"""
-    merged: dict[str, VariableDefinition] = dict(VARIABLE_REGISTRY)
-    merged.update(_runtime_registry)
+    """返回预置注册表与运行时自定义变量的合并结果（兼容层）。"""
+    merged: dict[str, VariableDefinition] = dict(STATIC_VARIABLE_REGISTRY)
+    merged.update(_runtime_cache.all())
     return merged
+
+
+# ---------------------------------------------------------------------------
+# 向后兼容接口（旧代码可继续使用）
+# ---------------------------------------------------------------------------
 
 
 def register_runtime_variable(key: str, definition: VariableDefinition) -> None:
     """将用户确认的自定义变量写入运行时注册表。"""
-    _runtime_registry[key] = definition
+    _runtime_cache.register(key, definition)
 
 
 def load_runtime_registry_from_db(entries: list[dict[str, Any]]) -> None:
     """从数据库 CustomVariable 记录加载运行时注册表。"""
-    _runtime_registry.clear()
-    for entry in entries:
-        key = entry["key"]
-        _runtime_registry[key] = {
-            "label": entry["label"],
-            "category": entry.get("category", "other"),
-            "aliases": entry.get("aliases") or [],
-            "required": entry.get("required", False),
-            "is_multiple": entry.get("is_multiple", False),
-        }
+    _runtime_cache.load_from_entries(entries)

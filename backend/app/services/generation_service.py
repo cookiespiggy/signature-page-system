@@ -15,11 +15,17 @@ from pathlib import Path
 from typing import Any
 
 from docxtpl import DocxTemplate
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import SessionLocal
+from app.exceptions import (
+    ActiveTaskExistsError,
+    InvalidStateTransition,
+    NoActiveTaskError,
+    NoTemplatesSelectedError,
+    TemplateFileMissingError,
+)
 from app.models import GeneratedFile, GenerationTask, Project, ProjectTemplate, Template, Variable
 from app.services.project_service import GENERATED_DIR, get_project
 
@@ -30,7 +36,86 @@ _cancel_events: dict[int, threading.Event] = {}
 
 ACTIVE_STATUSES = {"pending", "processing"}
 _BASE_KEY_PATTERN = re.compile(r"^(.+)_(\d+)$")
-_UNSAFE_FILENAME = re.compile(r"[^\w\-_.\u4e00-\u9fff]+")
+_UNSAFE_FILENAME = re.compile(r"[^\w\-_.一-龥]+")
+
+
+class GenerationStateMachine:
+    """显式状态机 — 管理 GenerationTask 和关联 Project 的状态转换。
+
+    合法转换:
+        pending    → processing | cancelled
+        processing → completed | failed | cancelled
+        completed  → (terminal)
+        failed     → (terminal)
+        cancelled  → (terminal)
+    """
+
+    TRANSITIONS: dict[str, set[str]] = {
+        "pending": {"processing", "cancelled"},
+        "processing": {"completed", "failed", "cancelled"},
+        "completed": set(),
+        "failed": set(),
+        "cancelled": set(),
+    }
+
+    def __init__(
+        self, task: GenerationTask, project: Project | None, db: Session
+    ) -> None:
+        self._task = task
+        self._project = project
+        self._db = db
+
+    @property
+    def status(self) -> str:
+        return self._task.status
+
+    def can_transition_to(self, new_status: str) -> bool:
+        return new_status in self.TRANSITIONS.get(self._task.status, set())
+
+    def transition_to(self, new_status: str) -> None:
+        """转换状态，同步更新 Project.status。"""
+        if not self.can_transition_to(new_status):
+            raise InvalidStateTransition(
+                f"非法状态转换: {self._task.status} → {new_status}"
+            )
+        now = datetime.now(UTC).replace(tzinfo=None)
+        self._task.status = new_status
+        self._task.updated_at = now
+
+        # 同步 Project.status
+        if self._project:
+            if new_status == "processing":
+                self._project.status = "generating"
+            elif new_status == "completed":
+                self._project.status = "completed"
+            elif new_status in {"failed", "cancelled"}:
+                self._project.status = "draft"
+
+        # 设置时间戳
+        if new_status == "completed":
+            self._task.completed_at = now
+        elif new_status == "cancelled":
+            self._task.cancelled_at = now
+
+        self._db.commit()
+
+    def update_progress(self, completed_count: int) -> None:
+        """更新进度计数（不改变状态）。"""
+        self._task.completed_count = completed_count
+        self._db.commit()
+
+    def mark_failed(self, error_message: str, completed_count: int) -> None:
+        """标记为失败（从 processing 状态）。"""
+        if not self.can_transition_to("failed"):
+            return
+        self._task.status = "failed"
+        self._task.error_message = error_message
+        self._task.completed_count = completed_count
+        now = datetime.now(UTC).replace(tzinfo=None)
+        self._task.updated_at = now
+        if self._project and self._project.status == "generating":
+            self._project.status = "draft"
+        self._db.commit()
 
 
 def shutdown_executor() -> None:
@@ -170,12 +255,12 @@ def _render_one_template(
     return generated
 
 
-def _mark_task_cancelled(db: Session, task: GenerationTask, completed_count: int) -> None:
-    now = datetime.now(UTC).replace(tzinfo=None)
-    task.status = "cancelled"
-    task.completed_count = completed_count
-    task.cancelled_at = now
-    db.commit()
+def _mark_task_cancelled(
+    sm: GenerationStateMachine, completed_count: int
+) -> None:
+    """通过状态机取消任务。"""
+    sm._task.completed_count = completed_count
+    sm.transition_to("cancelled")
 
 
 def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event) -> None:
@@ -186,13 +271,9 @@ def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event
         if task is None:
             return
 
-        task.status = "processing"
-        db.commit()
-
         project = db.get(Project, project_id)
-        if project:
-            project.status = "generating"
-            db.commit()
+        sm = GenerationStateMachine(task, project, db)
+        sm.transition_to("processing")
 
         templates = _get_project_templates(db, project_id)
         variables = list(
@@ -203,7 +284,7 @@ def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event
 
         for index, template in enumerate(templates):
             if cancel_event.is_set() or _is_task_cancelled_in_db(db, task_id):
-                _mark_task_cancelled(db, task, completed_count)
+                _mark_task_cancelled(sm, completed_count)
                 return
 
             generated = _render_one_template(
@@ -219,37 +300,26 @@ def _run_generation(task_id: int, project_id: int, cancel_event: threading.Event
                 db.refresh(task)
                 if generated is not None:
                     completed_count = index + 1
-                _mark_task_cancelled(db, task, completed_count)
+                _mark_task_cancelled(sm, completed_count)
                 return
 
             if generated is None:
-                _mark_task_cancelled(db, task, completed_count)
+                _mark_task_cancelled(sm, completed_count)
                 return
 
             completed_count = index + 1
-            task.completed_count = completed_count
-            db.commit()
+            sm.update_progress(completed_count)
 
-        now = datetime.now(UTC).replace(tzinfo=None)
-        task.status = "completed"
-        task.completed_count = completed_count
-        task.completed_at = now
-        if project:
-            project.status = "completed"
-        db.commit()
+        sm._task.completed_count = completed_count
+        sm.transition_to("completed")
     except Exception as exc:
         logger.exception("生成任务 %s 失败", task_id)
         db.rollback()
         task = db.get(GenerationTask, task_id)
-        if task and task.status not in {"cancelled", "completed"}:
-            task.status = "failed"
-            task.error_message = str(exc)
-            task.completed_count = completed_count
-            db.commit()
         project = db.get(Project, project_id)
-        if project and project.status == "generating":
-            project.status = "draft"
-            db.commit()
+        if task and task.status not in {"cancelled", "completed"}:
+            sm = GenerationStateMachine(task, project, db)
+            sm.mark_failed(str(exc), completed_count)
     finally:
         _cancel_events.pop(task_id, None)
         db.close()
@@ -265,17 +335,15 @@ def start_generation(db: Session, project_id: int) -> GenerationTask:
     get_project(db, project_id)
     templates = _get_project_templates(db, project_id)
     if not templates:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先为项目选择至少一个模板",
+        raise NoTemplatesSelectedError(
+            "请先为项目选择至少一个模板"
         )
 
     for template in templates:
         path = _resolve_template_path(template.file_path or "")
         if not path.is_file():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"模板「{template.name}」文件缺失，无法生成",
+            raise TemplateFileMissingError(
+                f"模板「{template.name}」文件缺失，无法生成"
             )
 
     active_stmt = select(GenerationTask).where(
@@ -283,10 +351,7 @@ def start_generation(db: Session, project_id: int) -> GenerationTask:
         GenerationTask.status.in_(ACTIVE_STATUSES),
     )
     if db.scalar(active_stmt):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="该项目已有进行中的生成任务",
-        )
+        raise ActiveTaskExistsError("该项目已有进行中的生成任务")
 
     task = GenerationTask(
         project_id=project_id,
@@ -313,10 +378,7 @@ def cancel_generation(db: Session, project_id: int) -> GenerationTask:
     )
     task = db.scalar(stmt)
     if task is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="没有进行中的生成任务",
-        )
+        raise NoActiveTaskError("没有进行中的生成任务")
 
     now = datetime.now(UTC).replace(tzinfo=None)
     task.status = "cancelled"
@@ -561,20 +623,14 @@ def get_generated_file(db: Session, file_id: int) -> GeneratedFile:
     )
     generated = db.scalar(stmt)
     if generated is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"文件 {file_id} 不存在",
-        )
+        raise NoActiveTaskError(f"文件 {file_id} 不存在")
     return generated
 
 
 def resolve_download_path(generated: GeneratedFile) -> Path:
     path = Path(generated.file_path)
     if not path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="文件已被删除或不存在",
-        )
+        raise NoActiveTaskError("文件已被删除或不存在")
     return path
 
 
@@ -583,10 +639,7 @@ def build_download_all_zip(db: Session, project_id: int) -> tuple[bytes, str]:
     project = get_project(db, project_id)
     files = list_generated_files(db, project_id)
     if not files:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="暂无可下载的生成文件",
-        )
+        raise NoActiveTaskError("暂无可下载的生成文件")
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     zip_name = f"project_{project_id}_all_{timestamp}.zip"

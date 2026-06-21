@@ -2,6 +2,7 @@ import { AlertCircle, Info } from "lucide-react"
 
 import { AiBadge } from "@/components/ai/AiBadge"
 import { AiDegradedBanner } from "@/components/ai/AiDegradedBanner"
+import { ConfidenceMeter, EvidenceSection, RiskNote } from "@/components/ai/AiReasoning"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { GoldPanel } from "@/components/layout/GoldPanel"
@@ -47,39 +48,42 @@ function IssueCard({
   return (
     <GoldPanel
       className={cn(
-        "space-y-2 p-4",
+        "space-y-3 p-4",
         isError ? "border-destructive/30" : "border-primary/20",
         onIssueClick && "cursor-pointer transition-colors hover:bg-primary/5",
       )}
     >
       <button
         type="button"
-        className="w-full space-y-2 text-left"
+        className="w-full space-y-3 text-left"
         onClick={() => onIssueClick?.(issue.variable_key)}
       >
-      <div className="flex flex-wrap items-center gap-2">
-        {isError ? (
-          <AlertCircle className="size-4 text-destructive" />
-        ) : (
-          <Info className="size-4 text-primary" />
-        )}
-        <Badge
-          variant="outline"
-          className={
-            isError
-              ? "border-destructive/35 bg-destructive/10 text-destructive"
-              : "border-primary/35 bg-primary/10 text-primary"
-          }
-        >
-          {isError ? "错误" : "警告"}
-        </Badge>
-        <SourceBadge issue={issue} />
-        <code className="text-xs text-muted-foreground">{issue.variable_key}</code>
-      </div>
-      <p className="text-sm">{issue.message}</p>
-      {issue.suggestion ? (
-        <p className="text-xs text-muted-foreground">建议：{issue.suggestion}</p>
-      ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {isError ? (
+            <AlertCircle className="size-4 text-destructive" />
+          ) : (
+            <Info className="size-4 text-primary" />
+          )}
+          <Badge
+            variant="outline"
+            className={
+              isError
+                ? "border-destructive/35 bg-destructive/10 text-destructive"
+                : "border-primary/35 bg-primary/10 text-primary"
+            }
+          >
+            {isError ? "错误" : "警告"}
+          </Badge>
+          <SourceBadge issue={issue} />
+          <code className="text-xs text-muted-foreground">{issue.variable_key}</code>
+          <ConfidenceMeter confidence={issue.confidence} />
+        </div>
+        <p className="text-sm">{issue.message}</p>
+        {issue.suggestion ? (
+          <p className="text-xs text-muted-foreground">建议：{issue.suggestion}</p>
+        ) : null}
+        <EvidenceSection evidence={issue.evidence_list} />
+        <RiskNote note={issue.risk_note} />
       </button>
     </GoldPanel>
   )

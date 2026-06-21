@@ -27,6 +27,9 @@ export interface VariableField {
   isMultiple: boolean
   sort_order: number
   rows: VariableRow[]
+  sourceTemplateIds: number[]
+  isMerged: boolean
+  mergedFromKeys: string[] | null
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -64,8 +67,20 @@ export function buildVariableFields(variables: Variable[]): VariableField[] {
           isMultiple: true,
           sort_order: variable.sort_order,
           rows: [],
+          sourceTemplateIds: variable.source_template_ids,
+          isMerged: variable.is_merged,
+          mergedFromKeys: variable.merged_from_keys,
         }
         multiples.set(base, field)
+      } else {
+        if (variable.is_merged || variable.source_template_ids.length > 0) {
+          field.isMerged = field.isMerged || variable.is_merged
+          for (const tid of variable.source_template_ids) {
+            if (!field.sourceTemplateIds.includes(tid)) {
+              field.sourceTemplateIds.push(tid)
+            }
+          }
+        }
       }
       field.rows.push({
         key: variable.key,
@@ -88,6 +103,9 @@ export function buildVariableFields(variables: Variable[]): VariableField[] {
             updated_at: variable.updated_at,
           },
         ],
+        sourceTemplateIds: variable.source_template_ids,
+        isMerged: variable.is_merged,
+        mergedFromKeys: variable.merged_from_keys,
       })
     }
   }
